@@ -115,6 +115,30 @@ This method pulls the pre-built, stable images from Docker Hub. It's faster and 
 
 The project includes a GitHub Actions workflow (`.github/workflows/docker-publish.yaml`) that automatically builds and pushes the Docker images for both the Go application and the Python service to Docker Hub whenever changes are pushed to the `main` branch.
 
+## LLM Service Configuration (Ollama vs. OpenAI)
+
+The LLM service is designed to be flexible. By default, it uses a local Ollama instance to run the `qwen2:0.5b` model. However, you can easily switch to using OpenAI's more powerful `gpt-4o` model by providing an API key.
+
+### To Use OpenAI:
+
+1.  **Create a `.env` file:** In the root of the project, create a file named `.env`.
+2.  **Add your configuration:** Add your OpenAI API key and, optionally, the model you wish to use.
+    ```
+    OPENAI_API_KEY=sk-your-api-key-here
+    OPENAI_MODEL=gpt-4-turbo
+    ```
+3.  **Restart the services:** If the application is running, restart it with `docker-compose up -d --build`.
+
+### To Use a Different Ollama Model:
+
+To use a different model from Ollama (e.g., `llama3`), you can set the `OLLAMA_MODEL` variable in your `.env` file:
+```
+OLLAMA_MODEL=llama3
+```
+Then, restart the services. The `llm-service` will pull and use the specified model.
+
+If no model is specified, the service defaults to `gpt-4o` for OpenAI and `qwen2:0.5b` for Ollama.
+
 ## Project Structure
 
 ```

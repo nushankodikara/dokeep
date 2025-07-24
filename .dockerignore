@@ -15,3 +15,5 @@ py-service/
 # Ignore uploads and data directories, they will be mounted as volumes
 data/
 uploads/ 
+
+.env
