@@ -13,6 +13,7 @@ jobs:
       docker_username: nushankodi
       context: .
       dockerfile: ./Dockerfile
+      platforms: linux/amd64
     secrets:
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
@@ -23,6 +24,7 @@ jobs:
       docker_username: nushankodi
       context: ./py-service
       dockerfile: ./py-service/Dockerfile
+      platforms: linux/amd64
     secrets:
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
@@ -33,5 +35,6 @@ jobs:
       docker_username: nushankodi
       context: ./llm-service
       dockerfile: ./llm-service/Dockerfile
+      platforms: linux/amd64
     secrets:
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }} 

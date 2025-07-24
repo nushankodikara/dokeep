@@ -633,7 +633,7 @@ func (h *DocumentHandler) callOcrService(filePath string) (*OcrResult, error) {
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{Timeout: 5 * time.Minute}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("ocr service request failed: %w", err)
@@ -670,7 +670,7 @@ func (h *DocumentHandler) callPredictService(content string) ([]string, error) {
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{Timeout: 5 * time.Minute}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("predict service request failed: %w", err)
@@ -708,7 +708,7 @@ func (h *DocumentHandler) callLlmService(content string, initialTags []string) (
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: 2 * time.Minute} // Generous timeout for LLM
+	client := &http.Client{Timeout: 10 * time.Minute} // Generous timeout for LLM
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("llm service request failed: %w", err)
@@ -751,7 +751,7 @@ func (h *DocumentHandler) analyzeAndSaveContent(documentID int64, content string
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: 2 * time.Minute}
+	client := &http.Client{Timeout: 10 * time.Minute}
 	resp, err := client.Do(req)
 	if err != nil {
 		log.Printf("Error sending request for document %d: %v", documentID, err)
