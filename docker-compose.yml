@@ -4,12 +4,10 @@ services:
     ports:
       - "8081:8081"
     environment:
+      - DISABLE_AI=${DISABLE_AI:-0}
       - DOKEEP_ENV=docker
-    volumes:
-      - ./data:/app/data
-      - ./uploads:/app/uploads
     depends_on:
-      - dokeep-service
+      - db
     restart: unless-stopped
 
   dokeep-service:

@@ -139,6 +139,27 @@ Then, restart the services. The `llm-service` will pull and use the specified mo
 
 If no model is specified, the service defaults to `gpt-4o` for OpenAI and `qwen2:0.5b` for Ollama.
 
+### Configuring the Ollama Host
+
+When using Ollama, the `llm-service` needs to know how to connect to the Ollama instance running on your host machine. This is configured via the `OLLAMA_HOST` environment variable.
+
+-   **For Mac and Windows:** Docker's `host.docker.internal` DNS name is typically used. The default value is already set for this.
+-   **For Linux:** You may need to find your host's IP address on the Docker bridge network. You can often find this by running `ip addr show docker0` and looking for the IP address.
+
+To override the default, add the `OLLAMA_HOST` variable to your `.env` file:
+```
+OLLAMA_HOST=http://172.17.0.1:11434
+```
+
+### Disabling AI Features
+
+You can disable all AI-powered features (such as content analysis and tagging) by setting the `DISABLE_AI` environment variable to `1` in your `.env` file:
+
+```
+DISABLE_AI=1
+```
+By default, AI features are enabled (`DISABLE_AI=0`).
+
 ## Project Structure
 
 ```

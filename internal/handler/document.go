@@ -725,3 +725,59 @@ func (h *DocumentHandler) callLlmService(content string, initialTags []string) (
 	}
 	return &result, nil
 }
+
+func (h *DocumentHandler) analyzeAndSaveContent(documentID int64, content string, initialTags []string) {
+	// Check if AI features are disabled
+	if os.Getenv("DISABLE_AI") == "1" {
+		log.Println("AI features are disabled. Skipping content analysis.")
+		return
+	}
+
+	serviceURL := "http://llm-service:8001/analyze"
+
+	requestBody, err := json.Marshal(map[string]interface{}{
+		"content":      content,
+		"initial_tags": initialTags,
+	})
+	if err != nil {
+		log.Printf("Error marshalling request for document %d: %v", documentID, err)
+		return
+	}
+
+	req, err := http.NewRequest("POST", serviceURL, bytes.NewBuffer(requestBody))
+	if err != nil {
+		log.Printf("Error creating request for document %d: %v", documentID, err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 2 * time.Minute}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("Error sending request for document %d: %v", documentID, err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("Non-OK status for document %d: %s", documentID, resp.Status)
+		return
+	}
+
+	var result LlmAnalysisResult
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		log.Printf("Error decoding response for document %d: %v", documentID, err)
+		return
+	}
+
+	// Save the results to the database
+	_, err = h.DB.Exec("UPDATE documents SET summary = ?, created_date = ? WHERE id = ?",
+		result.Summary, result.ExtractedDate, documentID)
+	if err != nil {
+		log.Printf("Error updating document %d: %v", documentID, err)
+		return
+	}
+
+	// Add the tags to the document
+	h.addTagsToDocument(int(documentID), result.Tags)
+}
