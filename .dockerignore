@@ -1,0 +1,17 @@
+# Ignore .git directory, .dockerignore file itself, and Docker related files
+.git
+.dockerignore
+Dockerfile
+docker-compose.yml
+
+# Ignore local development files
+*.log
+.idea/
+.vscode/
+
+# Ignore the Python service directory
+py-service/
+
+# Ignore uploads and data directories, they will be mounted as volumes
+data/
+uploads/ 

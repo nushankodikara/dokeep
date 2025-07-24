@@ -1,0 +1,13 @@
+package components
+
+import "fmt"
+
+templ Tag(tagID int, tagName string, docID int) {
+	<form action={ templ.URL(fmt.Sprintf("/document/%d/tags/%d", docID, tagID)) } method="POST" class="mr-2 mb-2">
+		<input type="hidden" name="_method" value="DELETE"/>
+		<button type="submit" class="flex items-center px-2 py-1 text-xs text-white bg-red-600 rounded-full">
+			<span>{ tagName }</span>
+			<svg class="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+		</button>
+	</form>
+} 

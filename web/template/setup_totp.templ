@@ -1,0 +1,29 @@
+package template
+
+import "encoding/base64"
+
+templ SetupTOTPPage(qrCodeImage string) {
+	@Layout("Setup TOTP") {
+		<div class="container mx-auto mt-8 text-center">
+			<h1 class="text-2xl font-bold">Set up Two-Factor Authentication</h1>
+			<p class="mt-4">Scan the QR code below with your authenticator app.</p>
+
+			<div class="mt-4 flex justify-center">
+				<img src={ "data:image/png;base64," + base64.StdEncoding.EncodeToString([]byte(qrCodeImage)) } alt="QR Code"/>
+			</div>
+
+			<form action="/setup-totp" method="POST" class="mt-4">
+				<div class="max-w-xs mx-auto">
+					<label for="totp_code" class="sr-only">TOTP Code</label>
+					<input id="totp_code" name="totp_code" type="text" required class="appearance-none rounded relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm" placeholder="Enter code from app"/>
+				</div>
+
+				<div class="mt-4">
+					<button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded">
+						Verify and Enable
+					</button>
+				</div>
+			</form>
+		</div>
+	}
+} 

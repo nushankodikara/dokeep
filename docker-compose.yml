@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  dokeep-application:
+    image: nushankodi/dokeep-application:latest
+    ports:
+      - "8081:8081"
+    environment:
+      - DOKEEP_ENV=docker
+    volumes:
+      - ./data:/app/data
+      - ./uploads:/app/uploads
+    depends_on:
+      - dokeep-service
+    restart: unless-stopped
+
+  dokeep-service:
+    image: nushankodi/dokeep-service:latest
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./uploads:/app/uploads
+    restart: unless-stopped
+
+volumes:
+  data:
+  uploads: 

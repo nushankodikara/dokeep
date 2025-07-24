@@ -1,0 +1,59 @@
+package template
+
+import (
+	"dokeep/internal/model"
+	"dokeep/web/template/components"
+	"fmt"
+	"strings"
+)
+
+templ DocumentPage(title string, doc model.Document, tags []model.Tag) {
+	@Layout(title) {
+		<div class="container mx-auto px-4 py-8">
+			<div class="p-6 bg-white rounded-md shadow-md">
+				<div class="md:grid md:grid-cols-3 md:gap-8">
+					<!-- Left Column: Details Form -->
+					<div class="md:col-span-1">
+						<form action={ templ.URL(fmt.Sprintf("/document/%d/details", doc.ID)) } method="POST">
+							<div class="mb-4">
+								<label for="title" class="block text-gray-700 text-sm font-bold mb-2">Title</label>
+								<input type="text" name="title" id="title" value={ doc.Title } class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"/>
+							</div>
+							<div class="mb-4">
+								<label for="created_date" class="block text-gray-700 text-sm font-bold mb-2">Created Date</label>
+								<input type="date" name="created_date" id="created_date" value={ doc.CreatedDate.Format("2006-01-02") } class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"/>
+							</div>
+							<div class="mb-4">
+								<label for="summary" class="block text-gray-700 text-sm font-bold mb-2">Summary</label>
+								<textarea name="summary" id="summary" rows="5" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">{ doc.Summary }</textarea>
+							</div>
+							<button type="submit" class="mt-6 px-4 py-2 font-medium tracking-wide text-white capitalize transition-colors duration-200 transform bg-indigo-600 rounded-md hover:bg-indigo-500 focus:outline-none focus:bg-indigo-500">
+								Save Changes
+							</button>
+						</form>
+
+						<!-- Tags Section -->
+						<div class="mt-8">
+							<h4 class="text-xl font-semibold mb-2">Tags</h4>
+							<div class="flex flex-wrap items-center mt-2 gap-2">
+								for _, tag := range tags {
+									@components.Tag(tag.ID, tag.Name, doc.ID)
+								}
+								@components.AddTagForm(doc.ID)
+							</div>
+						</div>
+					</div>
+
+					<!-- Right Column: Document Viewer -->
+					<div class="md:col-span-2 mt-8 md:mt-0">
+						if strings.HasSuffix(doc.FilePath, ".pdf") {
+							<iframe src={ templ.URL("/" + doc.FilePath) } class="w-full h-full min-h-[80vh] border"></iframe>
+						} else {
+							<img src={ templ.URL("/" + doc.FilePath) } class="w-full border"/>
+						}
+					</div>
+				</div>
+			</div>
+		</div>
+	}
+} 

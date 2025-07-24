@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  dokeep-application:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8081:8081"
+    volumes:
+      - ./data:/app/data
+      - ./uploads:/app/uploads
+    depends_on:
+      - dokeep-service
+    restart: unless-stopped
+
+  dokeep-service:
+    build:
+      context: ./py-service
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./uploads:/app/uploads
+    restart: unless-stopped
+
+volumes:
+  data:
+  uploads: 

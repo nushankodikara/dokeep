@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+python-multipart
+Pillow
+pdf2image
+pytesseract
+spacy
+scikit-learn
+joblib
+datefinder 
