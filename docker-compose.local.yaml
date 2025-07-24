@@ -9,10 +9,11 @@ services:
       - DISABLE_AI=${DISABLE_AI:-0}
       - DOKEEP_ENV=docker
     volumes:
-      - ./data:/app/data
-      - ./uploads:/app/uploads
+      - data:/app/data
+      - uploads:/app/uploads
     depends_on:
       - dokeep-service
+      - llm-service
     restart: unless-stopped
 
   dokeep-service:
@@ -22,7 +23,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./uploads:/app/uploads
+      - uploads:/app/uploads
     restart: unless-stopped
 
   llm-service:
