@@ -9,6 +9,7 @@ import joblib
 import spacy
 import time
 import datefinder
+import logging
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.naive_bayes import MultinomialNB
 from sklearn.pipeline import Pipeline
@@ -16,6 +17,9 @@ from sklearn.preprocessing import MultiLabelBinarizer
 from sklearn.multiclass import OneVsRestClassifier
 
 app = FastAPI()
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Load SpaCy model
 nlp = spacy.load("en_core_web_sm")
@@ -63,6 +67,7 @@ async def create_thumbnail(file: UploadFile = File(...)):
 
 @app.post("/process")
 async def process_document(file: UploadFile = File(...)):
+    logging.info(f"Received document for processing: {file.filename}")
     contents = await file.read()
     filename = file.filename
     
@@ -110,10 +115,31 @@ async def process_document(file: UploadFile = File(...)):
     else:
         thumbnail_return_path = "" # Unsupported type
 
-    # Find date in the OCR text
-    found_dates = list(datefinder.find_dates(ocr_text))
-    extracted_date = found_dates[0].isoformat() if found_dates else None
+    logging.info(f"Extracted {len(ocr_text)} characters from {filename}")
 
+    # First, try to find a high-confidence date using SpaCy's NER
+    doc = nlp(ocr_text)
+    extracted_date = None
+    for ent in doc.ents:
+        if ent.label_ == "DATE":
+            # Found a date entity, now try to parse it.
+            found_dates = list(datefinder.find_dates(ent.text))
+            if found_dates:
+                extracted_date = found_dates[0].isoformat()
+                break # Stop after finding the first valid date
+
+    # If the NLP model didn't find a date, fall back to a broader search
+    if not extracted_date:
+        found_dates = list(datefinder.find_dates(ocr_text))
+        if found_dates:
+            extracted_date = found_dates[0].isoformat()
+
+    if extracted_date:
+        logging.info(f"Found extracted date for {filename}: {extracted_date}")
+    else:
+        logging.info(f"No date found for {filename}")
+
+    logging.info(f"Finished processing {filename}. Thumbnail at: {thumbnail_return_path}")
     return {"text": ocr_text, "thumbnail_path": thumbnail_return_path, "extracted_date": extracted_date}
 
 

@@ -47,27 +47,27 @@ func DashboardPage(username string, documents []model.Document, totalDocs, page,
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"flex justify-between items-center\"><h3 class=\"text-3xl font-medium text-gray-700\">Dashboard</h3><button @click=\"openModal = &#39;upload-modal&#39;\" class=\"px-4 py-2 font-medium tracking-wide text-white capitalize transition-colors duration-200 transform bg-indigo-600 rounded-md hover:bg-indigo-500 focus:outline-none focus:bg-indigo-500\">Upload Document</button></div><!-- Stats Cards --> <div class=\"mt-4 grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3\"><div class=\"flex items-center px-5 py-6 bg-white rounded-md shadow-sm\"><div class=\"p-3 bg-indigo-600 bg-opacity-75 rounded-full\"><svg class=\"w-8 h-8 text-white\" fill=\"none\" stroke=\"currentColor\" viewBox=\"0 0 24 24\" xmlns=\"http://www.w3.org/2000/svg\"><path stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z\"></path></svg></div><div class=\"mx-5\"><h4 class=\"text-2xl font-semibold text-gray-700\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div x-data=\"{ isDragging: false }\" @dragenter.prevent=\"isDragging = true\" @dragover.prevent=\"isDragging = true\" @dragleave.prevent=\"isDragging = false\" @drop.prevent=\"handleDrop($event); isDragging = false\" class=\"relative\"><!-- Dropzone Overlay --><div x-show=\"isDragging\" style=\"display: none;\" class=\"absolute inset-0 z-50 flex items-center justify-center bg-indigo-500 bg-opacity-75 rounded-lg border-4 border-dashed border-indigo-700\"><span class=\"text-3xl font-bold text-white\">Drop files to upload</span></div><!-- Existing Dashboard Content --><div class=\"flex justify-between items-center\"><h3 class=\"text-3xl font-medium text-gray-700\">Dashboard</h3><button @click=\"openModal = &#39;upload-modal&#39;\" class=\"px-4 py-2 font-medium tracking-wide text-white capitalize transition-colors duration-200 transform bg-indigo-600 rounded-md hover:bg-indigo-500 focus:outline-none focus:bg-indigo-500\">Upload Document</button></div><!-- Stats Cards --><div class=\"mt-4 grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3\"><div class=\"flex items-center px-5 py-6 bg-white rounded-md shadow-sm\"><div class=\"p-3 bg-indigo-600 bg-opacity-75 rounded-full\"><svg class=\"w-8 h-8 text-white\" fill=\"none\" stroke=\"currentColor\" viewBox=\"0 0 24 24\" xmlns=\"http://www.w3.org/2000/svg\"><path stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z\"></path></svg></div><div class=\"mx-5\"><h4 class=\"text-2xl font-semibold text-gray-700\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var3 string
 			templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", totalDocs))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/template/dashboard.templ`, Line: 25, Col: 84}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/template/dashboard.templ`, Line: 39, Col: 85}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "</h4><div class=\"text-gray-500\">Documents</div></div></div><div class=\"flex items-center px-5 py-6 bg-white rounded-md shadow-sm\"><div class=\"p-3 bg-green-600 bg-opacity-75 rounded-full\"><svg class=\"w-8 h-8 text-white\" fill=\"none\" stroke=\"currentColor\" viewBox=\"0 0 24 24\" xmlns=\"http://www.w3.org/2000/svg\"><path stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z\"></path></svg></div><div class=\"mx-5\"><button @click=\"openModal = &#39;trainModal&#39;\" class=\"text-2xl font-semibold text-gray-700 hover:underline\">Train Model</button><div class=\"text-gray-500\">Update AI Tagger</div></div></div></div><!-- Search Form --> <div class=\"mt-8\"><form action=\"/dashboard\" method=\"GET\" class=\"flex items-center gap-4\"><input type=\"search\" name=\"q\" placeholder=\"Search by title, content, summary, or tags...\" value=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "</h4><div class=\"text-gray-500\">Documents</div></div></div><div class=\"flex items-center px-5 py-6 bg-white rounded-md shadow-sm\"><div class=\"p-3 bg-green-600 bg-opacity-75 rounded-full\"><svg class=\"w-8 h-8 text-white\" fill=\"none\" stroke=\"currentColor\" viewBox=\"0 0 24 24\" xmlns=\"http://www.w3.org/2000/svg\"><path stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z\"></path></svg></div><div class=\"mx-5\"><button @click=\"openModal = &#39;trainModal&#39;\" class=\"text-2xl font-semibold text-gray-700 hover:underline\">Train Model</button><div class=\"text-gray-500\">Update AI Tagger</div></div></div></div><!-- Search Form --><div class=\"mt-8\"><form action=\"/dashboard\" method=\"GET\" class=\"flex items-center gap-4\"><input type=\"search\" name=\"q\" placeholder=\"Search by title, content, summary, or tags...\" value=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var4 string
 			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(query)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/template/dashboard.templ`, Line: 43, Col: 107}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/template/dashboard.templ`, Line: 57, Col: 108}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 			if templ_7745c5c3_Err != nil {
@@ -100,7 +100,7 @@ func DashboardPage(username string, documents []model.Document, totalDocs, page,
 					var templ_7745c5c3_Var5 string
 					templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(templ.URL("/" + doc.Thumbnail))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/template/dashboard.templ`, Line: 75, Col: 53}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/template/dashboard.templ`, Line: 89, Col: 54}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 					if templ_7745c5c3_Err != nil {
@@ -113,7 +113,7 @@ func DashboardPage(username string, documents []model.Document, totalDocs, page,
 					var templ_7745c5c3_Var6 string
 					templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs("Thumbnail for " + doc.Title)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/template/dashboard.templ`, Line: 75, Col: 90}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/template/dashboard.templ`, Line: 89, Col: 91}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 					if templ_7745c5c3_Err != nil {
@@ -131,7 +131,7 @@ func DashboardPage(username string, documents []model.Document, totalDocs, page,
 				var templ_7745c5c3_Var7 string
 				templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(doc.Title)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/template/dashboard.templ`, Line: 79, Col: 66}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/template/dashboard.templ`, Line: 93, Col: 67}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 				if templ_7745c5c3_Err != nil {
@@ -144,7 +144,7 @@ func DashboardPage(username string, documents []model.Document, totalDocs, page,
 				var templ_7745c5c3_Var8 string
 				templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(doc.CreatedDate.Format("Jan 2, 2006"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/template/dashboard.templ`, Line: 82, Col: 94}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/template/dashboard.templ`, Line: 96, Col: 95}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 				if templ_7745c5c3_Err != nil {
@@ -157,7 +157,7 @@ func DashboardPage(username string, documents []model.Document, totalDocs, page,
 				var templ_7745c5c3_Var9 string
 				templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(doc.CreatedAt.Format("Jan 2, 2006"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/template/dashboard.templ`, Line: 85, Col: 92}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/template/dashboard.templ`, Line: 99, Col: 93}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 				if templ_7745c5c3_Err != nil {
@@ -179,7 +179,7 @@ func DashboardPage(username string, documents []model.Document, totalDocs, page,
 				var templ_7745c5c3_Var11 string
 				templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("openModal = 'delete-%d'", doc.ID))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/template/dashboard.templ`, Line: 89, Col: 82}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/template/dashboard.templ`, Line: 103, Col: 83}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 				if templ_7745c5c3_Err != nil {
@@ -214,7 +214,7 @@ func DashboardPage(username string, documents []model.Document, totalDocs, page,
 					var templ_7745c5c3_Var13 string
 					templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(doc.Title)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/template/dashboard.templ`, Line: 98, Col: 69}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/template/dashboard.templ`, Line: 112, Col: 70}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 					if templ_7745c5c3_Err != nil {
@@ -309,7 +309,7 @@ func DashboardPage(username string, documents []model.Document, totalDocs, page,
 					var templ_7745c5c3_Var19 string
 					templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", i))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/template/dashboard.templ`, Line: 133, Col: 252}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/template/dashboard.templ`, Line: 147, Col: 253}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var19))
 					if templ_7745c5c3_Err != nil {
@@ -366,10 +366,6 @@ func DashboardPage(username string, documents []model.Document, totalDocs, page,
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 34, " ")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
 			templ_7745c5c3_Var22 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 				templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 				templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
@@ -382,13 +378,17 @@ func DashboardPage(username string, documents []model.Document, totalDocs, page,
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 35, "<div><p>Are you sure you want to retrain the AI tagging model? This process can take a few moments and will use the current set of tagged documents as the training data.</p><div class=\"mt-6 text-right\"><a href=\"/train\" class=\"px-4 py-2 font-medium tracking-wide text-white capitalize transition-colors duration-200 transform bg-green-600 rounded-md hover:bg-green-500 focus:outline-none focus:bg-green-500\">Yes, Train Now</a> <button @click=\"openModal = &#39;&#39;\" class=\"px-4 py-2 ml-4 font-medium tracking-wide text-gray-700 capitalize transition-colors duration-200 transform bg-gray-200 rounded-md hover:bg-gray-300 focus:outline-none focus:bg-gray-300\">Cancel</button></div></div>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 34, "<div><p>Are you sure you want to retrain the AI tagging model? This process can take a few moments and will use the current set of tagged documents as the training data.</p><div class=\"mt-6 text-right\"><a href=\"/train\" class=\"px-4 py-2 font-medium tracking-wide text-white capitalize transition-colors duration-200 transform bg-green-600 rounded-md hover:bg-green-500 focus:outline-none focus:bg-green-500\">Yes, Train Now</a> <button @click=\"openModal = &#39;&#39;\" class=\"px-4 py-2 ml-4 font-medium tracking-wide text-gray-700 capitalize transition-colors duration-200 transform bg-gray-200 rounded-md hover:bg-gray-300 focus:outline-none focus:bg-gray-300\">Cancel</button></div></div>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				return nil
 			})
 			templ_7745c5c3_Err = components.Modal("trainModal", "Confirm Training").Render(templ.WithChildren(ctx, templ_7745c5c3_Var22), templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 35, "</div><script>\n\t\t\tfunction handleDrop(event) {\n\t\t\t\tconst files = event.dataTransfer.files;\n\t\t\t\tif (!files.length) return;\n\n\t\t\t\tArray.from(files).forEach(file => {\n\t\t\t\t\tconst formData = new FormData();\n\t\t\t\t\tformData.append('file', file);\n\t\t\t\t\t\n\t\t\t\t\t// Auto-generate title from filename\n\t\t\t\t\tconst title = file.name.replace(/\\.[^/.]+$/, \"\");\n\t\t\t\t\tformData.append('title', title);\n\n\t\t\t\t\tfetch('/upload', {\n\t\t\t\t\t\tmethod: 'POST',\n\t\t\t\t\t\tbody: formData\n\t\t\t\t\t}).then(response => {\n\t\t\t\t\t\tif (!response.ok) {\n\t\t\t\t\t\t\tconsole.error('Upload failed for file:', file.name);\n\t\t\t\t\t\t}\n\t\t\t\t\t}).catch(error => {\n\t\t\t\t\t\tconsole.error('Error uploading file:', file.name, error);\n\t\t\t\t\t});\n\t\t\t\t});\n\t\t\t\t\n\t\t\t\t// Optional: Refresh page after a delay to show new files\n\t\t\t\tsetTimeout(() => {\n\t\t\t\t\twindow.location.reload();\n\t\t\t\t}, 1000 * files.length); // Simple delay based on number of files\n\t\t\t}\n\t\t</script>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

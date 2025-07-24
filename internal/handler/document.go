@@ -264,19 +264,29 @@ func (h *DocumentHandler) Upload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var createdDate time.Time
+	// First, try the user-provided date
 	if createdDateStr != "" {
 		parsedDate, err := time.Parse("2006-01-02", createdDateStr)
 		if err == nil {
 			createdDate = parsedDate
 		}
-	} else if ocrResult.ExtractedDate != "" {
-		parsedDate, err := time.Parse(time.RFC3339, ocrResult.ExtractedDate)
+	}
+
+	// If the user didn't provide a valid date, try the extracted date
+	if createdDate.IsZero() && ocrResult.ExtractedDate != "" {
+		// Python's isoformat on a naive datetime is like "YYYY-MM-DDTHH:MM:SS".
+		// We need to parse this specific format, not the full RFC3339 with timezone.
+		const layout = "2006-01-02T15:04:05"
+		parsedDate, err := time.Parse(layout, ocrResult.ExtractedDate)
 		if err == nil {
 			createdDate = parsedDate
 		} else {
-			createdDate = time.Now()
+			log.Printf("Could not parse extracted date '%s': %v. Defaulting to current time.", ocrResult.ExtractedDate, err)
 		}
-	} else {
+	}
+
+	// If we still don't have a date, default to now
+	if createdDate.IsZero() {
 		createdDate = time.Now()
 	}
 
