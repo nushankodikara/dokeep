@@ -37,6 +37,7 @@ type OcrResult struct {
 type LlmAnalysisResult struct {
 	ExtractedDate string   `json:"extracted_date"`
 	Tags          []string `json:"tags"`
+	Summary       string   `json:"summary"`
 }
 
 func (h *DocumentHandler) List(w http.ResponseWriter, r *http.Request) ([]model.Document, int, error) {
@@ -142,22 +143,33 @@ func (h *DocumentHandler) GetTags(documentID int) ([]model.Tag, error) {
 
 func (h *DocumentHandler) addTagsToDocument(docID int, tags []string) {
 	for _, tagName := range tags {
+		// Normalize the tag: trim whitespace and convert to lowercase
+		normalizedTag := strings.TrimSpace(strings.ToLower(tagName))
+		if normalizedTag == "" {
+			continue // Skip empty tags
+		}
+
 		// Check if tag exists, otherwise create it
 		var tagID int
-		err := h.DB.QueryRow("SELECT id FROM tags WHERE name = ?", tagName).Scan(&tagID)
+		err := h.DB.QueryRow("SELECT id FROM tags WHERE name = ?", normalizedTag).Scan(&tagID)
 		if err == sql.ErrNoRows {
-			res, err := h.DB.Exec("INSERT INTO tags (name) VALUES (?)", tagName)
+			res, err := h.DB.Exec("INSERT INTO tags (name) VALUES (?)", normalizedTag)
 			if err != nil {
-				continue // Or log error
+				log.Printf("Error inserting new tag '%s': %v", normalizedTag, err)
+				continue
 			}
 			id, _ := res.LastInsertId()
 			tagID = int(id)
 		} else if err != nil {
-			continue // Or log error
+			log.Printf("Error querying for tag '%s': %v", normalizedTag, err)
+			continue
 		}
 
 		// Associate tag with document
-		h.DB.Exec("INSERT OR IGNORE INTO document_tags (document_id, tag_id) VALUES (?, ?)", docID, tagID)
+		_, err = h.DB.Exec("INSERT OR IGNORE INTO document_tags (document_id, tag_id) VALUES (?, ?)", docID, tagID)
+		if err != nil {
+			log.Printf("Error associating tag '%s' with document %d: %v", normalizedTag, docID, err)
+		}
 	}
 }
 
@@ -223,7 +235,7 @@ func (h *DocumentHandler) Upload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	title := r.FormValue("title")
-	summary := r.FormValue("summary")
+	userSummary := r.FormValue("summary")
 	createdDateStr := r.FormValue("created_date")
 	file, header, err := r.FormFile("file")
 	if err != nil {
@@ -269,11 +281,23 @@ func (h *DocumentHandler) Upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	llmResult, err := h.callLlmService(ocrResult.Content)
+	initialTags, err := h.callPredictService(ocrResult.Content)
+	if err != nil {
+		log.Printf("Prediction service failed: %v", err)
+		initialTags = []string{} // Default to empty list on error
+	}
+
+	llmResult, err := h.callLlmService(ocrResult.Content, initialTags)
 	if err != nil {
 		log.Printf("LLM analysis failed: %v. Proceeding without LLM data.", err)
-		// Non-fatal, so we'll just log and continue
-		llmResult = &LlmAnalysisResult{}
+		// Non-fatal, so we'll just log and continue, but use initial tags as a fallback
+		llmResult = &LlmAnalysisResult{Tags: initialTags}
+	}
+
+	// Use user's summary if provided, otherwise fall back to LLM's summary
+	finalSummary := userSummary
+	if finalSummary == "" {
+		finalSummary = llmResult.Summary
 	}
 
 	var createdDate time.Time
@@ -338,7 +362,7 @@ func (h *DocumentHandler) Upload(w http.ResponseWriter, r *http.Request) {
 
 	// Now that everything is successful, save the document to the database
 	res, err := h.DB.Exec("INSERT INTO documents (user_id, title, file_path, content, thumbnail, summary, created_date, file_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-		userID, title, filePath, ocrResult.Content, ocrResult.ThumbnailPath, summary, createdDate, ocrResult.FileHash)
+		userID, title, filePath, ocrResult.Content, ocrResult.ThumbnailPath, finalSummary, createdDate, ocrResult.FileHash)
 	if err != nil {
 		log.Printf("Error saving document to database: %v", err)
 		// Clean up files if DB insert fails
@@ -352,7 +376,7 @@ func (h *DocumentHandler) Upload(w http.ResponseWriter, r *http.Request) {
 
 	docID, _ := res.LastInsertId()
 
-	// Add tags from LLM
+	// Add final tags from LLM (or the initial tags if LLM failed)
 	if len(llmResult.Tags) > 0 {
 		h.addTagsToDocument(int(docID), llmResult.Tags)
 	}
@@ -425,10 +449,14 @@ func (h *DocumentHandler) RemoveTag(w http.ResponseWriter, r *http.Request) {
 	}
 	tagName := parts[1]
 
+	// Normalize the tag name before searching for it
+	normalizedTag := strings.TrimSpace(strings.ToLower(tagName))
+
 	// Get tag ID
 	var tagID int
-	err = h.DB.QueryRow("SELECT id FROM tags WHERE name = ?", tagName).Scan(&tagID)
+	err = h.DB.QueryRow("SELECT id FROM tags WHERE name = ?", normalizedTag).Scan(&tagID)
 	if err != nil {
+		log.Printf("Attempted to remove non-existent tag '%s' (normalized: '%s')", tagName, normalizedTag)
 		http.Error(w, "Tag not found", http.StatusNotFound)
 		return
 	}
@@ -625,13 +653,51 @@ func (h *DocumentHandler) callOcrService(filePath string) (*OcrResult, error) {
 	return &result, nil
 }
 
-func (h *DocumentHandler) callLlmService(content string) (*LlmAnalysisResult, error) {
+func (h *DocumentHandler) callPredictService(content string) ([]string, error) {
+	serviceURL := "http://dokeep-service:8000/predict"
+	if os.Getenv("DOKEEP_ENV") != "docker" {
+		serviceURL = "http://localhost:8000/predict"
+	}
+
+	requestBody, err := json.Marshal(map[string]string{"document": content})
+	if err != nil {
+		return nil, fmt.Errorf("could not marshal predict request: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", serviceURL, bytes.NewBuffer(requestBody))
+	if err != nil {
+		return nil, fmt.Errorf("could not create request to predict service: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("predict service request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("predict service returned non-OK status: %s", resp.Status)
+	}
+
+	var result map[string][]string
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("could not decode predict service response: %w", err)
+	}
+	return result["tags"], nil
+}
+
+func (h *DocumentHandler) callLlmService(content string, initialTags []string) (*LlmAnalysisResult, error) {
 	serviceURL := "http://llm-service:8001/analyze"
 	if os.Getenv("DOKEEP_ENV") != "docker" {
 		serviceURL = "http://localhost:8001/analyze"
 	}
 
-	requestBody, err := json.Marshal(map[string]string{"content": content})
+	requestBody, err := json.Marshal(map[string]interface{}{
+		"content":      content,
+		"initial_tags": initialTags,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("could not marshal llm request: %w", err)
 	}

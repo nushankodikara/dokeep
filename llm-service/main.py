@@ -12,10 +12,12 @@ app = FastAPI()
 
 class AnalysisRequest(BaseModel):
     content: str
+    initial_tags: List[str] = []
 
 class AnalysisResponse(BaseModel):
     extracted_date: Optional[datetime.datetime] = None
     tags: List[str] = []
+    summary: Optional[str] = None
 
 @app.on_event("startup")
 async def startup_event():
@@ -30,13 +32,18 @@ async def startup_event():
 async def analyze_content(request: AnalysisRequest):
     logging.info("Received request for content analysis.")
     prompt = f"""
-    Analyze the following document content. Your task is to extract two pieces of information:
-    1. The creation date of the document. If a clear date is present, return it in YYYY-MM-DD format.
-    2. A list of 3 to 5 relevant tags that categorize the document. Return these as a comma-separated list.
+    You are an expert document analyst. Your task is to analyze the following document content and a list of initial machine learning-generated tags. Your goal is to refine and improve this list and provide a concise summary.
 
-    Respond with ONLY a JSON object with two keys: "extracted_date" and "tags".
-    Example response: {{"extracted_date": "2023-01-15", "tags": "finance, report, quarterly"}}
+    Based on the document content, please provide:
+    1. The creation date of the document in YYY-MM-DD format if a clear date is present.
+    2. A final, refined list of 3 to 5 relevant tags.
+    3. A concise, one or two-sentence summary of the document.
 
+    Respond with ONLY a JSON object with three keys: "extracted_date", "tags", and "summary".
+    Example response: {{"extracted_date": "2023-01-15", "tags": "finance, quarterly report, planning", "summary": "This document is a quarterly financial report detailing revenue and projections."}}
+
+    Initial Tags: {", ".join(request.initial_tags)}
+    ---
     Document Content:
     ---
     {request.content}
@@ -62,9 +69,11 @@ async def analyze_content(request: AnalysisRequest):
         tags = result.get("tags", [])
         if isinstance(tags, str):
             tags = [tag.strip() for tag in tags.split(',')]
+        
+        summary = result.get("summary", None)
 
-        logging.info(f"Analysis complete. Found date: {extracted_date}, Found tags: {tags}")
-        return AnalysisResponse(extracted_date=extracted_date, tags=tags)
+        logging.info(f"Analysis complete. Found date: {extracted_date}, Found tags: {tags}, Found summary: {summary}")
+        return AnalysisResponse(extracted_date=extracted_date, tags=tags, summary=summary)
         
     except Exception as e:
         logging.error(f"Error during LLM analysis: {e}")
