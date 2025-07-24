@@ -50,9 +50,11 @@ func InitDB(dataSourceName string) *sql.DB {
 		content TEXT,
 		thumbnail TEXT,
 		summary TEXT,
+		file_hash TEXT,
 		created_date DATE,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-		FOREIGN KEY (user_id) REFERENCES users(id)
+		FOREIGN KEY (user_id) REFERENCES users(id),
+		UNIQUE (user_id, file_hash)
 	);`
 
 	if _, err := db.Exec(createDocumentsTableSQL); err != nil {

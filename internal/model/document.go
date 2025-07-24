@@ -9,6 +9,7 @@ type Document struct {
 	Thumbnail   string
 	Content     string
 	Summary     string
+	FileHash    string
 	CreatedDate time.Time
 	CreatedAt   time.Time
 }

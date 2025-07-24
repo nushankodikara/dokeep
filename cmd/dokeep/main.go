@@ -44,6 +44,8 @@ func main() {
 	})
 
 	mux.HandleFunc("/dashboard", middleware.RequireAuth(sessionManager, func(w http.ResponseWriter, r *http.Request) {
+		flashError := sessionManager.PopString(r.Context(), "flash_error")
+
 		query := r.URL.Query().Get("q")
 		pageStr := r.URL.Query().Get("page")
 		page, err := strconv.Atoi(pageStr)
@@ -59,7 +61,7 @@ func main() {
 		}
 
 		totalPages := (totalDocs + 9) / 10
-		template.DashboardPage(username, docs, totalDocs, page, totalPages, query).Render(r.Context(), w)
+		template.DashboardPage(username, docs, totalDocs, page, totalPages, query, flashError).Render(r.Context(), w)
 	}))
 
 	mux.HandleFunc("/document", middleware.RequireAuth(sessionManager, docHandler.Show))

@@ -10,6 +10,7 @@ import spacy
 import time
 import datefinder
 import logging
+import hashlib
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.naive_bayes import MultinomialNB
 from sklearn.pipeline import Pipeline
@@ -70,6 +71,10 @@ async def process_document(file: UploadFile = File(...)):
     logging.info(f"Received document for processing: {file.filename}")
     contents = await file.read()
     filename = file.filename
+
+    # Calculate SHA256 hash
+    file_hash = hashlib.sha256(contents).hexdigest()
+    logging.info(f"Calculated SHA256 hash for {filename}: {file_hash}")
     
     # --- Paths inside the container ---
     # The volume mounts './uploads' from the host to '/app/uploads' in the container
@@ -140,7 +145,7 @@ async def process_document(file: UploadFile = File(...)):
         logging.info(f"No date found for {filename}")
 
     logging.info(f"Finished processing {filename}. Thumbnail at: {thumbnail_return_path}")
-    return {"text": ocr_text, "thumbnail_path": thumbnail_return_path, "extracted_date": extracted_date}
+    return {"text": ocr_text, "thumbnail_path": thumbnail_return_path, "extracted_date": extracted_date, "file_hash": file_hash}
 
 
 @app.post("/ocr")

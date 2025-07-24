@@ -31,6 +31,7 @@ type OcrResult struct {
 	Content       string `json:"text"`
 	ThumbnailPath string `json:"thumbnail_path"`
 	ExtractedDate string `json:"extracted_date"`
+	FileHash      string `json:"file_hash"`
 }
 
 func (h *DocumentHandler) List(w http.ResponseWriter, r *http.Request) ([]model.Document, int, error) {
@@ -292,9 +293,27 @@ func (h *DocumentHandler) Upload(w http.ResponseWriter, r *http.Request) {
 
 	userID := h.Session.GetInt(r.Context(), "userID")
 
+	// Check for duplicate hash for this user
+	var existingID int
+	err = h.DB.QueryRow("SELECT id FROM documents WHERE user_id = ? AND file_hash = ?", userID, ocrResult.FileHash).Scan(&existingID)
+	if err != nil && err != sql.ErrNoRows {
+		// Real database error
+		os.Remove(filePath) // Clean up
+		http.Error(w, "Database error during duplicate check", http.StatusInternalServerError)
+		return
+	}
+	if existingID > 0 {
+		// Duplicate found
+		os.Remove(filePath) // Clean up the new file
+		log.Printf("Duplicate file upload blocked for user %d. Hash: %s", userID, ocrResult.FileHash)
+		h.Session.Put(r.Context(), "flash_error", "This file has already been uploaded.")
+		http.Redirect(w, r, "/dashboard", http.StatusSeeOther)
+		return
+	}
+
 	// Now that everything is successful, save the document to the database
-	res, err := h.DB.Exec("INSERT INTO documents (user_id, title, file_path, content, thumbnail, summary, created_date) VALUES (?, ?, ?, ?, ?, ?, ?)",
-		userID, title, filePath, ocrResult.Content, ocrResult.ThumbnailPath, summary, createdDate)
+	res, err := h.DB.Exec("INSERT INTO documents (user_id, title, file_path, content, thumbnail, summary, created_date, file_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		userID, title, filePath, ocrResult.Content, ocrResult.ThumbnailPath, summary, createdDate, ocrResult.FileHash)
 	if err != nil {
 		log.Printf("Error saving document to database: %v", err)
 		// Clean up files if DB insert fails
