@@ -60,10 +60,14 @@ This is the recommended way to run Dokeep, as it encapsulates all services and d
 
 ### Prerequisites
 
--   Docker
--   Docker Compose
+-   Docker & Docker Compose
+-   **Ollama:** The LLM service requires the [Ollama desktop application](https://ollama.com/) to be running on the host machine.
 
-Make sure both Docker and Docker Compose are installed on your system before proceeding.
+Make sure all prerequisites are installed and running before proceeding.
+
+### Configuring the Ollama Host
+
+The LLM service connects to the Ollama instance running on your host machine. The default URL is set to `http://host.docker.internal:11434`. If your Ollama instance is running on a different address or port, you can change the `OLLAMA_HOST` environment variable in the `docker-compose.yml` and `docker-compose.local.yaml` files.
 
 ### Running for Local Development
 

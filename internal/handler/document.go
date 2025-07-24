@@ -34,6 +34,11 @@ type OcrResult struct {
 	FileHash      string `json:"file_hash"`
 }
 
+type LlmAnalysisResult struct {
+	ExtractedDate string   `json:"extracted_date"`
+	Tags          []string `json:"tags"`
+}
+
 func (h *DocumentHandler) List(w http.ResponseWriter, r *http.Request) ([]model.Document, int, error) {
 	userID := h.Session.GetInt(r.Context(), "userID")
 	query := r.URL.Query().Get("q")
@@ -264,7 +269,15 @@ func (h *DocumentHandler) Upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	llmResult, err := h.callLlmService(ocrResult.Content)
+	if err != nil {
+		log.Printf("LLM analysis failed: %v. Proceeding without LLM data.", err)
+		// Non-fatal, so we'll just log and continue
+		llmResult = &LlmAnalysisResult{}
+	}
+
 	var createdDate time.Time
+	// Priority: User > LLM > OCR > Now
 	// First, try the user-provided date
 	if createdDateStr != "" {
 		parsedDate, err := time.Parse("2006-01-02", createdDateStr)
@@ -273,7 +286,19 @@ func (h *DocumentHandler) Upload(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// If the user didn't provide a valid date, try the extracted date
+	// If the user didn't provide a valid date, try the extracted date from LLM
+	if createdDate.IsZero() && llmResult.ExtractedDate != "" {
+		// LLM's extracted date is in a specific format, e.g., "YYYY-MM-DDTHH:MM:SS"
+		const layout = "2006-01-02T15:04:05"
+		parsedDate, err := time.Parse(layout, llmResult.ExtractedDate)
+		if err == nil {
+			createdDate = parsedDate
+		} else {
+			log.Printf("Could not parse LLM extracted date '%s': %v. Defaulting to current time.", llmResult.ExtractedDate, err)
+		}
+	}
+
+	// If we still don't have a date, try the extracted date from OCR
 	if createdDate.IsZero() && ocrResult.ExtractedDate != "" {
 		// Python's isoformat on a naive datetime is like "YYYY-MM-DDTHH:MM:SS".
 		// We need to parse this specific format, not the full RFC3339 with timezone.
@@ -326,8 +351,13 @@ func (h *DocumentHandler) Upload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	docID, _ := res.LastInsertId()
-	log.Printf("Successfully uploaded and processed document ID: %d", docID)
 
+	// Add tags from LLM
+	if len(llmResult.Tags) > 0 {
+		h.addTagsToDocument(int(docID), llmResult.Tags)
+	}
+
+	log.Printf("Successfully uploaded and processed document ID: %d", docID)
 	http.Redirect(w, r, "/dashboard", http.StatusSeeOther)
 }
 
@@ -592,5 +622,40 @@ func (h *DocumentHandler) callOcrService(filePath string) (*OcrResult, error) {
 		return nil, fmt.Errorf("could not decode ocr service response: %w", err)
 	}
 
+	return &result, nil
+}
+
+func (h *DocumentHandler) callLlmService(content string) (*LlmAnalysisResult, error) {
+	serviceURL := "http://llm-service:8001/analyze"
+	if os.Getenv("DOKEEP_ENV") != "docker" {
+		serviceURL = "http://localhost:8001/analyze"
+	}
+
+	requestBody, err := json.Marshal(map[string]string{"content": content})
+	if err != nil {
+		return nil, fmt.Errorf("could not marshal llm request: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", serviceURL, bytes.NewBuffer(requestBody))
+	if err != nil {
+		return nil, fmt.Errorf("could not create request to llm service: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 2 * time.Minute} // Generous timeout for LLM
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("llm service request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("llm service returned non-OK status: %s", resp.Status)
+	}
+
+	var result LlmAnalysisResult
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("could not decode llm service response: %w", err)
+	}
 	return &result, nil
 }

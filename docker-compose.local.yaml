@@ -22,6 +22,16 @@ services:
       - ./uploads:/app/uploads
     restart: unless-stopped
 
+  llm-service:
+    build:
+      context: ./llm-service
+      dockerfile: Dockerfile
+    environment:
+      - OLLAMA_HOST=http://localhost:11434
+    volumes:
+      - ollama_models:/root/.ollama
+
 volumes:
   data:
-  uploads: 
+  uploads:
+  ollama_models: 
