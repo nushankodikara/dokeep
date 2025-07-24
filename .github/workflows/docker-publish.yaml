@@ -1,4 +1,4 @@
-name: Call Reusable Docker Build and Push
+name: Docker Build and Push
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
       - main
 
 jobs:
-  build_and_push_go_app:
+  dokeep-application:
     uses: nushankodikara/reusable-workflows/.github/workflows/docker-publish.yaml@main
     with:
       docker_image_and_tag: nushankodi/dokeep-application:latest
@@ -16,7 +16,7 @@ jobs:
     secrets:
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
-  build_and_push_py_service:
+  dokeep-service:
     uses: nushankodikara/reusable-workflows/.github/workflows/docker-publish.yaml@main
     with:
       docker_image_and_tag: nushankodi/dokeep-service:latest
