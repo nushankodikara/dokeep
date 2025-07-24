@@ -26,7 +26,7 @@ jobs:
     secrets:
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
-  build_and_push_llm_service:
+  dokeep-llm:
     uses: nushankodikara/reusable-workflows/.github/workflows/docker-publish.yaml@main
     with:
       docker_image_and_tag: nushankodi/dokeep-llm:latest

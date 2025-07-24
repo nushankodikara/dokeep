@@ -1,24 +1,28 @@
 # Dokeep: The Intelligent Document Library
 [![Docker Image](https://github.com/nushankodikara/dokeep/actions/workflows/docker-publish.yaml/badge.svg)](https://github.com/nushankodikara/dokeep/actions/workflows/docker-publish.yaml)
 
-Dokeep is a self-hosted document management system built with Go and Python. It allows you to upload, analyze, and search your documents with ease. The system automatically performs OCR on your files, extracts dates, and allows for powerful searching across all your content.
+Dokeep is a self-hosted document management system built with Go and Python. It allows you to upload, analyze, and search your documents with ease. The system uses a chain of AI services to perform OCR, extract key metadata, and intelligently tag and summarize your content.
 
 ## Features
 
--   **Multi-Format Upload:** Supports PDF, JPG, and PNG documents.
+-   **Multi-Format Upload:** Supports PDF, JPG, and PNG documents with a drag-and-drop interface.
+-   **Duplicate File Detection:** Prevents duplicate documents by checking the hash of file contents.
 -   **Automatic OCR:** All uploaded documents are automatically scanned to extract their text content.
--   **Intelligent Date Extraction:** Automatically finds and sets the document's creation date from its content.
+-   **AI-Powered Analysis (via Ollama):**
+    -   **Intelligent Date Extraction:** Automatically finds and sets the document's creation date from its content, understanding formats like "January 1st, 2023".
+    -   **Automatic Tagging:** A two-stage process first uses a classic ML model for initial tags, which are then refined by an LLM for higher accuracy.
+    -   **Automatic Summarization:** If you don't provide a summary, the LLM will generate a concise one for you.
 -   **Powerful Search:** Full-text search across titles, summaries, extracted content, and tags.
--   **Tag Management:** Organize your documents with custom tags.
 -   **Secure Authentication:** User accounts with Two-Factor Authentication (TOTP) for enhanced security.
 -   **Dockerized Environment:** Comes with a full Docker and Docker Compose setup for easy deployment.
--   **CI/CD Ready:** Includes a GitHub Actions workflow to automatically build and publish Docker images.
+-   **CI/CD Ready:** Includes a GitHub Actions workflow to automatically build and publish Docker images for all services.
 
 ## Tech Stack
 
 -   **Backend:** Go
 -   **Frontend:** Templ (Go-based HTML templating), TailwindCSS, Alpine.js
--   **Microservice:** Python (FastAPI) for OCR, date extraction, and machine learning tasks.
+-   **OCR & ML Service:** Python (FastAPI) for OCR, initial date extraction, and classic ML-based tagging.
+-   **LLM Service:** Python (FastAPI) for advanced analysis, using **Ollama** to run the `qwen2:0.5b` model.
 -   **Database:** SQLite
 -   **Containerization:** Docker & Docker Compose
 
@@ -30,7 +34,7 @@ Dokeep is a self-hosted document management system built with Go and Python. It 
 -   Python (3.9+)
 -   Tesseract OCR Engine
 -   `poppler-utils` (for PDF processing)
--   Docker & Docker Compose (for the containerized setup)
+-   **Ollama:** The [Ollama desktop application](https://ollama.com/) must be installed and running.
 
 ### Installation & Running
 
@@ -40,14 +44,21 @@ Dokeep is a self-hosted document management system built with Go and Python. It 
     cd dokeep
     ```
 
-2.  **Run the Python Microservice:**
+2.  **Run the Python Microservices (in separate terminals):**
     ```bash
+    # Terminal 1: OCR & ML Service
     cd py-service
     pip install -r requirements.txt
     uvicorn main:app --host 0.0.0.0 --port 8000
     ```
+    ```bash
+    # Terminal 2: LLM Service
+    cd llm-service
+    pip install -r requirements.txt
+    uvicorn main:app --host 0.0.0.0 --port 8001
+    ```
 
-3.  **Run the Go Application (in a separate terminal):**
+3.  **Run the Go Application (in a third terminal):**
     ```bash
     go run ./cmd/dokeep
     ```
@@ -56,18 +67,16 @@ The application will be available at `http://localhost:8081`.
 
 ## Docker Deployment
 
-This is the recommended way to run Dokeep, as it encapsulates all services and dependencies into managed containers.
+This is the recommended way to run Dokeep.
 
 ### Prerequisites
 
 -   Docker & Docker Compose
 -   **Ollama:** The LLM service requires the [Ollama desktop application](https://ollama.com/) to be running on the host machine.
 
-Make sure all prerequisites are installed and running before proceeding.
-
 ### Configuring the Ollama Host
 
-The LLM service connects to the Ollama instance running on your host machine. The default URL is set to `http://host.docker.internal:11434`. If your Ollama instance is running on a different address or port, you can change the `OLLAMA_HOST` environment variable in the `docker-compose.yml` and `docker-compose.local.yaml` files.
+The LLM service connects to the Ollama instance running on your host machine. The default URL is set to `http://host.docker.internal:11434`. If your Ollama instance is running on a different address, you can change the `OLLAMA_HOST` environment variable in the `docker-compose.yml` and `docker-compose.local.yaml` files.
 
 ### Running for Local Development
 
@@ -113,10 +122,8 @@ The project includes a GitHub Actions workflow (`.github/workflows/docker-publis
 ├── cmd/dokeep/          # Main Go application entrypoint
 ├── data/                  # SQLite database storage
 ├── internal/              # Go application's core logic
-│   ├── database/
-│   ├── handler/
-│   └── model/
-├── py-service/            # Python microservice for OCR and ML
+├── llm-service/           # Python service for LLM analysis via Ollama
+├── py-service/            # Python microservice for OCR and classic ML
 ├── uploads/               # Storage for uploaded files and thumbnails
 ├── web/                   # Frontend templates and components
 ├── .github/workflows/     # CI/CD workflows
