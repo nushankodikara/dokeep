@@ -21,7 +21,7 @@ This document outlines the plan for creating "dokeep", a web application for sto
 - **Frontend**: HTML rendered server-side.
 - **Templating**: `templ` for type-safe HTML templates in Go.
 - **Styling**: TailwindCSS via the Play CDN for rapid UI development.
-- **Database**: SQLite, stored in a dedicated `data` directory.
+- **Database**: PostgreSQL, managed via Docker.
 - **Authentication**: We'll use a library like `github.com/pquerna/otp` for TOTP and `scs` for session management.
 
 ## 3. Architecture
@@ -59,7 +59,7 @@ To improve upload performance and system robustness, we are moving to an asynchr
     3.  It will automatically refresh to show the real-time status of each document in the queue.
 
 -   **Direct Database Access**:
-    -   The `py-service` will be granted direct access to the SQLite database to update the status and results of the document processing, making it a more independent and capable part of the system.
+    -   The `py-service` will be granted direct access to the PostgreSQL database to update the status and results of the document processing, making it a more independent and capable part of the system.
 
 ## 5. Project Structure
 
@@ -70,8 +70,6 @@ dokeep/
 ├── cmd/
 │   └── dokeep/
 │       └── main.go         # Application entry point
-├── data/
-│   └── dokeep.db           # SQLite database file
 ├── internal/
 │   ├── auth/               # Authentication and session logic
 │   ├── config/             # Configuration loading
@@ -100,44 +98,44 @@ dokeep/
 
 ## 6. Database Schema
 
-We'll start with a simple schema that can be evolved.
+We'll use a PostgreSQL database with the following schema.
 
 **`users` table:**
 
-| Column             | Type    | Constraints               | Description                               |
-|--------------------|---------|---------------------------|-------------------------------------------|
-| `id`               | INTEGER | PRIMARY KEY AUTOINCREMENT | Unique identifier for the user.           |
-| `username`         | TEXT    | NOT NULL, UNIQUE          | User's chosen username.                   |
-| `password_hash`    | TEXT    | NOT NULL                  | Hashed password.                          |
-| `totp_secret`      | TEXT    |                           | Secret key for TOTP.                      |
-| `totp_enabled`     | BOOLEAN | DEFAULT FALSE             | Whether TOTP is enabled for the user.     |
+| Column             | Type        | Constraints      | Description                               |
+|--------------------|-------------|------------------|-------------------------------------------|
+| `id`               | SERIAL      | PRIMARY KEY      | Unique identifier for the user.           |
+| `username`         | TEXT        | NOT NULL, UNIQUE | User's chosen username.                   |
+| `password_hash`    | TEXT        | NOT NULL         | Hashed password.                          |
+| `totp_secret`      | TEXT        |                  | Secret key for TOTP.                      |
+| `totp_enabled`     | BOOLEAN     | DEFAULT FALSE    | Whether TOTP is enabled for the user.     |
 
 **`documents` table:**
 
-| Column        | Type      | Constraints               | Description                               |
-|---------------|-----------|---------------------------|-------------------------------------------|
-| `id`          | INTEGER   | PRIMARY KEY AUTOINCREMENT | Unique identifier for the document.       |
-| `user_id`     | INTEGER   | FOREIGN KEY (`users.id`)  | Foreign key to the `users` table.         |
-| `title`       | TEXT      | NOT NULL                  | User-defined title for the document.      |
-| `file_path`   | TEXT      | NOT NULL                  | Path to the original file on the server.  |
-| `thumbnail`   | TEXT      |                           | Path to the generated thumbnail file.     |
-| `content`     | TEXT      |                           | OCR-extracted text content.               |
-| `created_at`  | TIMESTAMP | DEFAULT CURRENT_TIMESTAMP | Timestamp of when the document was uploaded.|
+| Column        | Type        | Constraints                      | Description                               |
+|---------------|-------------|----------------------------------|-------------------------------------------|
+| `id`          | SERIAL      | PRIMARY KEY                      | Unique identifier for the document.       |
+| `user_id`     | INTEGER     | REFERENCES users(id)             | Foreign key to the `users` table.         |
+| `title`       | TEXT        | NOT NULL                         | User-defined title for the document.      |
+| `file_path`   | TEXT        | NOT NULL                         | Path to the original file on the server.  |
+| `thumbnail`   | TEXT        |                                  | Path to the generated thumbnail file.     |
+| `content`     | TEXT        |                                  | OCR-extracted text content.               |
+| `created_at`  | TIMESTAMPTZ | DEFAULT CURRENT_TIMESTAMP        | Timestamp of when the document was uploaded.|
 
 **`tags` table:**
 
 | Column | Type    | Constraints       | Description                    |
 |--------|---------|-------------------|--------------------------------|
-| `id`   | INTEGER | PRIMARY KEY AUTOINCREMENT | Unique identifier for the tag. |
+| `id`   | SERIAL  | PRIMARY KEY       | Unique identifier for the tag. |
 | `name` | TEXT    | NOT NULL, UNIQUE  | The name of the tag (e.g., "invoices"). |
 
 **`document_tags` table (Junction Table):**
 
-| Column         | Type    | Constraints                      | Description                                |
-|----------------|---------|----------------------------------|--------------------------------------------|
-| `document_id`  | INTEGER | FOREIGN KEY (`documents.id`)     | Foreign key to the `documents` table.      |
-| `tag_id`       | INTEGER | FOREIGN KEY (`tags.id`)          | Foreign key to the `tags` table.           |
-|                |         | PRIMARY KEY (`document_id`, `tag_id`) | Ensures unique document-tag pairings.      |
+| Column         | Type    | Constraints                             | Description                                |
+|----------------|---------|-----------------------------------------|--------------------------------------------|
+| `document_id`  | INTEGER | REFERENCES documents(id) ON DELETE CASCADE | Foreign key to the `documents` table.      |
+| `tag_id`       | INTEGER | REFERENCES tags(id) ON DELETE CASCADE   | Foreign key to the `tags` table.           |
+|                |         | PRIMARY KEY (`document_id`, `tag_id`)       | Ensures unique document-tag pairings.      |
 
 ## 6. Development Milestones
 
@@ -195,5 +193,5 @@ We will build the application in phases.
 - [x] Implement modals for document upload, tag management, and training confirmation.
 - [x] Add pagination for the document list on the dashboard.
 - [x] Add a gallery view for documents with a view toggle.
-- [ ] Add proper error handling and logging.
+- [x] Add proper error handling and logging.
 - [ ] Write tests for critical components. 

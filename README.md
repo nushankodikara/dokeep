@@ -23,51 +23,11 @@ Dokeep is a self-hosted document management system built with Go and Python. It 
 -   **Frontend:** Templ (Go-based HTML templating), TailwindCSS, Alpine.js
 -   **OCR & ML Service:** Python (FastAPI) for OCR, initial date extraction, and classic ML-based tagging.
 -   **LLM Service:** Python (FastAPI) for advanced analysis, using **Ollama** to run the `qwen2:0.5b` model.
--   **Database:** SQLite
+-   **Database:** PostgreSQL
 -   **Containerization:** Docker & Docker Compose
 
-## Getting Started (Local Development)
-
-### Prerequisites
-
--   Go (1.24+)
--   Python (3.9+)
--   Tesseract OCR Engine
--   `poppler-utils` (for PDF processing)
--   **Ollama:** The [Ollama desktop application](https://ollama.com/) must be installed and running.
-
-### Installation & Running
-
-1.  **Clone the repository:**
-    ```bash
-    git clone <your-repo-url>
-    cd dokeep
-    ```
-
-2.  **Run the Python Microservices (in separate terminals):**
-    ```bash
-    # Terminal 1: OCR & ML Service
-    cd py-service
-    pip install -r requirements.txt
-    uvicorn main:app --host 0.0.0.0 --port 8000
-    ```
-    ```bash
-    # Terminal 2: LLM Service
-    cd llm-service
-    pip install -r requirements.txt
-    uvicorn main:app --host 0.0.0.0 --port 8001
-    ```
-
-3.  **Run the Go Application (in a third terminal):**
-    ```bash
-    go run ./cmd/dokeep
-    ```
-
-The application will be available at `http://localhost:8081`.
-
-## Docker Deployment
-
-This is the recommended way to run Dokeep.
+## Getting Started
+The only supported way to run Dokeep is by using Docker.
 
 ### Prerequisites
 
@@ -94,11 +54,11 @@ This method builds the Docker images from your local source code, which is ideal
     Once the build is complete and the containers are running, the application will be available at `http://localhost:8081`.
 
 3.  **Stopping the application:**
-    Press `Ctrl+C` in the terminal where the containers are running.
+    Press `Ctrl+C` in the terminal where the containers are running, or run `docker-compose down` to stop them if they are in detached mode.
 
 ### Running in Production
 
-This method pulls the pre-built, stable images from Docker Hub. It's faster and is the standard way to deploy the application to a server.
+This method pulls the pre-built, stable images from a container registry (like Docker Hub). It's faster and is the standard way to deploy the application to a server.
 
 1.  **Pull and start the containers:**
     ```bash
@@ -165,11 +125,10 @@ By default, AI features are enabled (`DISABLE_AI=0`).
 ```
 .
 ├── cmd/dokeep/          # Main Go application entrypoint
-├── data/                  # SQLite database storage
 ├── internal/              # Go application's core logic
 ├── llm-service/           # Python service for LLM analysis via Ollama
 ├── py-service/            # Python microservice for OCR and classic ML
-├── uploads/               # Storage for uploaded files and thumbnails
+├── uploads/               # Storage for uploaded files and thumbnails (managed by a Docker volume)
 ├── web/                   # Frontend templates and components
 ├── .github/workflows/     # CI/CD workflows
 ├── Dockerfile             # Dockerfile for the Go application
