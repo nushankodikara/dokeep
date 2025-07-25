@@ -1,4 +1,21 @@
 services:
+  postgres:
+    image: postgres:13
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: dokeep
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d dokeep"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    
   dokeep-application:
     build:
       context: .
@@ -8,12 +25,19 @@ services:
     environment:
       - DISABLE_AI=${DISABLE_AI:-0}
       - DOKEEP_ENV=docker
+      - DB_HOST=postgres
+      - DB_USER=user
+      - DB_PASSWORD=password
+      - DB_NAME=dokeep
     volumes:
-      - data:/app/data
       - uploads:/app/uploads
     depends_on:
-      - dokeep-service
-      - llm-service
+      postgres:
+        condition: service_healthy
+      dokeep-service:
+        condition: service_started
+      llm-service:
+        condition: service_started
     restart: unless-stopped
 
   dokeep-service:
@@ -24,7 +48,15 @@ services:
       - "8000:8000"
     volumes:
       - uploads:/app/uploads
+    environment:
+      - DB_HOST=postgres
+      - DB_USER=user
+      - DB_PASSWORD=password
+      - DB_NAME=dokeep
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   llm-service:
     build:
@@ -41,6 +73,6 @@ services:
       - ollama_models:/root/.ollama
 
 volumes:
-  data:
+  postgres_data:
   uploads:
   ollama_models: 

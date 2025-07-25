@@ -35,7 +35,8 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = h.DB.Exec("INSERT INTO users (username, password_hash) VALUES (?, ?)", username, string(hashedPassword))
+	var userID int
+	err = h.DB.QueryRow("INSERT INTO users (username, password_hash) VALUES ($1, $2) RETURNING id", username, string(hashedPassword)).Scan(&userID)
 	if err != nil {
 		http.Error(w, "Error creating user", http.StatusInternalServerError)
 		return
@@ -60,7 +61,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	var storedPasswordHash string
 	var userID int
 	var totpEnabled bool
-	err := h.DB.QueryRow("SELECT id, password_hash, totp_enabled FROM users WHERE username = ?", username).Scan(&userID, &storedPasswordHash, &totpEnabled)
+	err := h.DB.QueryRow("SELECT id, password_hash, totp_enabled FROM users WHERE username = $1", username).Scan(&userID, &storedPasswordHash, &totpEnabled)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			http.Error(w, "Invalid username or password", http.StatusUnauthorized)
@@ -104,7 +105,7 @@ func (h *AuthHandler) VerifyTOTP(w http.ResponseWriter, r *http.Request) {
 	userID := h.Session.GetInt(r.Context(), "tempUserID")
 
 	var secret string
-	err := h.DB.QueryRow("SELECT totp_secret FROM users WHERE id = ?", userID).Scan(&secret)
+	err := h.DB.QueryRow("SELECT totp_secret FROM users WHERE id = $1", userID).Scan(&secret)
 	if err != nil {
 		http.Error(w, "Failed to retrieve user data", http.StatusInternalServerError)
 		return
@@ -169,7 +170,7 @@ func (h *AuthHandler) SetupTOTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userID := h.Session.GetInt(r.Context(), "userID")
-	_, err := h.DB.Exec("UPDATE users SET totp_secret = ? WHERE id = ?", secret, userID)
+	_, err := h.DB.Exec("UPDATE users SET totp_secret = $1, totp_enabled = TRUE WHERE id = $2", secret, userID)
 	if err != nil {
 		http.Error(w, "Failed to save TOTP secret", http.StatusInternalServerError)
 		return
@@ -194,7 +195,7 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	userID := h.Session.GetInt(r.Context(), "userID")
 
 	var storedPasswordHash string
-	err := h.DB.QueryRow("SELECT password_hash FROM users WHERE id = ?", userID).Scan(&storedPasswordHash)
+	err := h.DB.QueryRow("SELECT password_hash FROM users WHERE id = $1", userID).Scan(&storedPasswordHash)
 	if err != nil {
 		http.Error(w, "Failed to retrieve user data", http.StatusInternalServerError)
 		return
@@ -212,7 +213,7 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = h.DB.Exec("UPDATE users SET password_hash = ? WHERE id = ?", newHashedPassword, userID)
+	_, err = h.DB.Exec("UPDATE users SET password_hash = $1 WHERE id = $2", newHashedPassword, userID)
 	if err != nil {
 		http.Error(w, "Failed to update password", http.StatusInternalServerError)
 		return

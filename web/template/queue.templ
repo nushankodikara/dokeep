@@ -1,0 +1,89 @@
+package template
+
+import "dokeep/internal/model"
+
+templ QueuePage(username string, documents []model.Document) {
+	@Layout(username) {
+		<div class="container mx-auto px-4 sm:px-8">
+			<div class="py-8">
+				<div>
+					<h2 class="text-2xl font-semibold leading-tight">Processing Queue</h2>
+				</div>
+				<div class="-mx-4 sm:-mx-8 px-4 sm:px-8 py-4 overflow-x-auto">
+					<div class="inline-block min-w-full shadow rounded-lg overflow-hidden">
+						<table class="min-w-full leading-normal">
+							<thead>
+								<tr>
+									<th class="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+										Original Filename
+									</th>
+									<th class="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+										Title
+									</th>
+									<th class="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+										Status
+									</th>
+									<th class="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+										Details
+									</th>
+								</tr>
+							</thead>
+							<tbody id="queue-table-body">
+								for _, doc := range documents {
+									@QueueRow(doc)
+								}
+							</tbody>
+						</table>
+					</div>
+				</div>
+			</div>
+		</div>
+		<script>
+			function pollQueue() {
+				fetch('/queue/status')
+					.then(response => response.text())
+					.then(html => {
+						const tableBody = document.getElementById('queue-table-body');
+						if (tableBody) {
+							tableBody.innerHTML = html;
+						}
+					})
+					.catch(err => console.error('Error fetching queue status:', err))
+					.finally(() => setTimeout(pollQueue, 3000)); // Poll every 3 seconds
+			}
+			// Start polling when the page loads
+			document.addEventListener('DOMContentLoaded', pollQueue);
+		</script>
+	}
+}
+
+templ QueueRow(doc model.Document) {
+	<tr>
+		<td class="px-5 py-5 bg-white border-b border-gray-200">
+			<p class="text-gray-900 whitespace-no-wrap">{ doc.OriginalFilename }</p>
+		</td>
+		<td class="px-5 py-5 text-sm bg-white border-b border-gray-200">
+			<p class="text-gray-900 whitespace-no-wrap">{ doc.Title }</p>
+		</td>
+		<td class="px-5 py-5 text-sm bg-white border-b border-gray-200">
+			<span class="relative inline-block px-3 py-1 font-semibold leading-tight" data-status={ doc.Status }>
+				<span
+					aria-hidden
+					class={
+						"absolute inset-0 opacity-50 rounded-full",
+						templ.KV("bg-yellow-200 text-yellow-900", doc.Status == "queued"),
+						templ.KV("bg-blue-200 text-blue-900", doc.Status == "processing"),
+						templ.KV("bg-green-200 text-green-900", doc.Status == "completed"),
+						templ.KV("bg-red-200 text-red-900", doc.Status == "failed"),
+					}
+				></span>
+				<span class="relative">{ doc.Status }</span>
+			</span>
+		</td>
+		<td class="px-5 py-5 text-sm bg-white border-b border-gray-200">
+			if doc.Status == "failed" {
+				<p class="text-red-600 whitespace-pre-wrap">{ doc.StatusMessage }</p>
+			}
+		</td>
+	</tr>
+} 

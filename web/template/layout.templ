@@ -20,8 +20,11 @@ templ Layout(title string) {
 					</div>
 					<nav class="mt-10">
 						<a href="/dashboard" class="flex items-center px-4 py-2 text-gray-700 bg-gray-200 rounded-md">Dashboard</a>
+						<a href="/queue" class="flex items-center px-4 py-2 mt-2 text-gray-600 rounded-md hover:bg-gray-200">Queue</a>
 						<a href="/settings" class="flex items-center px-4 py-2 mt-2 text-gray-600 rounded-md hover:bg-gray-200">Settings</a>
-						<a href="/logout" class="flex items-center px-4 py-2 mt-2 text-gray-600 rounded-md hover:bg-gray-200">Logout</a>
+						<form action="/logout" method="POST" class="inline">
+							<button type="submit" class="flex items-center px-4 py-2 mt-2 text-gray-600 rounded-md hover:bg-gray-200">Logout</button>
+						</form>
 					</nav>
 				</div>
 				<!-- Main content -->
@@ -34,6 +37,14 @@ templ Layout(title string) {
 									<path d="M4 6H20M4 12H20M4 18H11Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
 								</svg>
 							</button>
+						</div>
+
+						<div class="flex items-center">
+							<a href="/queue" class="text-gray-600 hover:text-gray-700 mx-4">Queue</a>
+							<a href="/settings" class="text-gray-600 hover:text-gray-700 mx-4">Settings</a>
+							<form action="/logout" method="POST" class="inline">
+								<button type="submit" class="text-gray-600 hover:text-gray-700 mx-4">Logout</button>
+							</form>
 						</div>
 					</header>
 					<!-- Page content -->

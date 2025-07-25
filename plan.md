@@ -34,7 +34,34 @@ We will use a microservices-based architecture.
     - **OCR**: `Pytesseract`.
     - **Automated Tagging**: A Naive Bayes classifier (`MultinomialNB`) with a TF-IDF vectorizer from `scikit-learn`, and a sophisticated NLP pre-processing pipeline using `SpaCy` for lemmatization and stop-word removal.
 
-## 4. Project Structure
+## 4. Asynchronous Document Processing Pipeline (New Architecture)
+
+To improve upload performance and system robustness, we are moving to an asynchronous, queue-based architecture for document processing.
+
+-   **Upload Process**:
+    1.  The user uploads a document via the Go application.
+    2.  The Go application immediately creates a new entry in the `documents` table with a `status` of `queued` and saves the original file.
+    3.  The Go application then forwards the file to a new endpoint on the Python service (`py-service`).
+    4.  The Python service saves the file to a dedicated processing queue directory (`uploads/queue/`).
+    5.  The Go application immediately returns a response to the user, directing them to a new "Queue" page.
+
+-   **Background Worker (Python Service)**:
+    1.  A background worker in the `py-service` constantly monitors the `uploads/queue/` directory.
+    2.  When a new file appears, the worker picks it up for processing.
+    3.  It updates the document's `status` in the database to `processing`.
+    4.  It performs all the intensive tasks: OCR, thumbnail generation, and calling the `llm-service` for advanced analysis.
+    5.  Upon completion, the worker directly updates the document's record in the database with the extracted content, summary, tags, and thumbnail path. The `status` is set to `completed`.
+    6.  If an error occurs, the `status` is set to `failed`, and the error message is logged in the database.
+
+-   **Queue UI (Go Application)**:
+    1.  A new `/queue` page is added to the Go application.
+    2.  This page lists all documents that are not yet in `completed` status.
+    3.  It will automatically refresh to show the real-time status of each document in the queue.
+
+-   **Direct Database Access**:
+    -   The `py-service` will be granted direct access to the SQLite database to update the status and results of the document processing, making it a more independent and capable part of the system.
+
+## 5. Project Structure
 
 A suggested directory structure to keep the project organized:
 
@@ -71,7 +98,7 @@ dokeep/
 └── plan.md                 # This file
 ```
 
-## 5. Database Schema
+## 6. Database Schema
 
 We'll start with a simple schema that can be evolved.
 

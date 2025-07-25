@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, Body
+from fastapi import FastAPI, UploadFile, File, Body, Form
 from fastapi.responses import Response
 from PIL import Image
 from pdf2image import convert_from_bytes
@@ -16,14 +16,220 @@ from sklearn.naive_bayes import MultinomialNB
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import MultiLabelBinarizer
 from sklearn.multiclass import OneVsRestClassifier
+import threading
+from contextlib import asynccontextmanager
+import sqlite3
+import requests
+import psycopg2
+from psycopg2.extras import DictCursor
 
 app = FastAPI()
+
+# --- LLM Service Communication ---
+LLM_SERVICE_URL = os.getenv("LLM_SERVICE_URL", "http://llm-service:8001/analyze")
+
+def call_llm_service(content: str) -> dict:
+    """
+    Calls the LLM service to get summary, tags, and extracted date.
+    """
+    if os.getenv("DISABLE_AI") == "1":
+        logging.info("AI features are disabled. Skipping LLM service call.")
+        return {}
+    
+    try:
+        response = requests.post(
+            LLM_SERVICE_URL,
+            json={"content": content, "initial_tags": []}, # We are not using initial tags for now
+            timeout=600 # 10 minute timeout
+        )
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Error calling LLM service: {e}")
+        return {}
+
+# --- Database Connection ---
+def get_db_connection():
+    try:
+        conn = psycopg2.connect(
+            host=os.getenv("DB_HOST"),
+            dbname=os.getenv("DB_NAME"),
+            user=os.getenv("DB_USER"),
+            password=os.getenv("DB_PASSWORD")
+        )
+        return conn
+    except psycopg2.OperationalError as e:
+        logging.error(f"Could not connect to PostgreSQL database: {e}")
+        return None
+
+def update_document_status(doc_id: int, status: str, message: str = ""):
+    conn = get_db_connection()
+    if conn is None:
+        return
+        
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "UPDATE documents SET status = %s, status_message = %s WHERE id = %s",
+                (status, message, doc_id)
+            )
+            conn.commit()
+        logging.info(f"Updated document {doc_id} status to '{status}'")
+    except Exception as e:
+        logging.error(f"Failed to update status for document {doc_id}: {e}")
+    finally:
+        if conn:
+            conn.close()
+
+def update_document_with_results(doc_id: int, result: dict):
+    """
+    Updates the document record with the analysis results after calling the LLM service.
+    """
+    conn = get_db_connection()
+    if conn is None:
+        return
+
+    try:
+        with conn.cursor() as cursor:
+            # Get final analysis from LLM
+            llm_result = call_llm_service(result.get("text", ""))
+            
+            # Combine results
+            final_summary = llm_result.get("summary", "")
+            final_tags = llm_result.get("tags", [])
+            
+            # Use LLM date if available, otherwise fall back to OCR date
+            final_date_str = llm_result.get("extracted_date")
+            if not final_date_str:
+                final_date_str = result.get("extracted_date")
+
+            cursor.execute(
+                """
+                UPDATE documents
+                SET content = %s, thumbnail = %s, file_hash = %s, summary = %s, created_date = %s, status = 'completed'
+                WHERE id = %s
+                """,
+                (
+                    result.get("text"),
+                    result.get("thumbnail_path"),
+                    result.get("file_hash"),
+                    final_summary,
+                    final_date_str, # Store as string, Go app will parse
+                    doc_id,
+                ),
+            )
+            conn.commit()
+            
+            # Add tags to the document
+            add_tags_to_document(doc_id, final_tags)
+            
+        logging.info(f"Successfully saved all results for document {doc_id}")
+    except Exception as e:
+        logging.error(f"Failed to save results for document {doc_id}: {e}")
+        update_document_status(doc_id, "failed", f"Error saving results to database: {e}")
+    finally:
+        if conn:
+            conn.close()
+
+
+def add_tags_to_document(doc_id: int, tags: list):
+    """
+    Adds tags to a document, creating them if they don't exist.
+    """
+    if not tags:
+        return
+        
+    conn = get_db_connection()
+    if conn is None:
+        return
+        
+    try:
+        with conn.cursor(cursor_factory=DictCursor) as cursor:
+            for tag_name in tags:
+                normalized_tag = tag_name.strip().lower()
+                if not normalized_tag:
+                    continue
+                
+                # Find or create the tag
+                cursor.execute("SELECT id FROM tags WHERE name = %s", (normalized_tag,))
+                tag_row = cursor.fetchone()
+                if tag_row:
+                    tag_id = tag_row['id']
+                else:
+                    cursor.execute("INSERT INTO tags (name) VALUES (%s) RETURNING id", (normalized_tag,))
+                    tag_id = cursor.fetchone()['id']
+                
+                # Associate tag with document
+                cursor.execute("INSERT INTO document_tags (document_id, tag_id) VALUES (%s, %s) ON CONFLICT DO NOTHING", (doc_id, tag_id))
+                
+            conn.commit()
+    except Exception as e:
+        logging.error(f"Failed to add tags for document {doc_id}: {e}")
+    finally:
+        if conn:
+            conn.close()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Load SpaCy model
 nlp = spacy.load("en_core_web_sm")
+
+def worker():
+    """
+    The background worker that processes files from the queue.
+    """
+    queue_dir = "uploads/queue"
+    logging.info("Background worker started.")
+    while True:
+        try:
+            files_in_queue = [f for f in os.listdir(queue_dir) if os.path.isfile(os.path.join(queue_dir, f))]
+            for filename in files_in_queue:
+                file_path = os.path.join(queue_dir, filename)
+                
+                # The filename is the document ID
+                try:
+                    doc_id = int(os.path.splitext(filename)[0])
+                except ValueError:
+                    logging.error(f"Invalid filename in queue (should be an integer ID): {filename}. Deleting.")
+                    os.remove(file_path)
+                    continue
+
+                logging.info(f"Worker picked up document ID: {doc_id}")
+                
+                update_document_status(doc_id, "processing")
+                
+                result = _process_document_task(file_path)
+                
+                if result:
+                    logging.info(f"Successfully processed document ID: {doc_id}.")
+                    update_document_with_results(doc_id, result)
+                else:
+                    logging.error(f"Failed to process document ID: {doc_id}.")
+                    update_document_status(doc_id, "failed", "An unexpected error occurred during processing.")
+
+                # Clean up the file from the queue
+                os.remove(file_path)
+                logging.info(f"Removed {filename} from queue.")
+
+        except FileNotFoundError:
+            # This is expected if the queue directory doesn't exist yet.
+            pass
+        except Exception as e:
+            logging.error(f"An error occurred in the worker loop: {e}")
+        
+        time.sleep(5) # Wait for 5 seconds before checking the queue again
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Start the background worker
+    worker_thread = threading.Thread(target=worker, daemon=True)
+    worker_thread.start()
+    yield
+    # Clean up the thread if needed, although daemon=True should handle it
+
+app = FastAPI(lifespan=lifespan)
+
 
 # In-memory storage for the model and binarizer
 model_pipeline = None
@@ -67,85 +273,104 @@ async def create_thumbnail(file: UploadFile = File(...)):
 
 
 @app.post("/process")
-async def process_document(file: UploadFile = File(...)):
-    logging.info(f"Received document for processing: {file.filename}")
-    contents = await file.read()
-    filename = file.filename
+async def process_document(doc_id: int = Form(...), file: UploadFile = File(...)):
+    # This endpoint now simply saves the file to a queue directory.
+    # The background worker will process it.
+    queue_dir = "uploads/queue"
+    os.makedirs(queue_dir, exist_ok=True)
+
+    # The filename in the queue is the document ID
+    _, ext = os.path.splitext(file.filename)
+    new_filename = f"{doc_id}{ext}"
+    file_path = os.path.join(queue_dir, new_filename)
+    
+    with open(file_path, "wb") as f:
+        contents = await file.read()
+        f.write(contents)
+
+    logging.info(f"File for doc ID '{doc_id}' saved to queue for processing as '{new_filename}'.")
+    return {"status": "queued", "doc_id": doc_id}
+
+
+def _process_document_task(file_path: str):
+    """
+    This function contains the core logic for processing a single document.
+    It's designed to be called by the background worker.
+    """
+    filename = os.path.basename(file_path)
+    logging.info(f"Worker processing document: {filename}")
+
+    with open(file_path, "rb") as f:
+        contents = f.read()
 
     # Calculate SHA256 hash
     file_hash = hashlib.sha256(contents).hexdigest()
     logging.info(f"Calculated SHA256 hash for {filename}: {file_hash}")
-    
+
     # --- Paths inside the container ---
-    # The volume mounts './uploads' from the host to '/app/uploads' in the container
     thumb_dir = "uploads/thumbnails"
     os.makedirs(thumb_dir, exist_ok=True)
     
-    # Create a unique name to avoid file collisions
     base_name = os.path.splitext(filename)[0]
-    unique_filename = f"{base_name}_{int(time.time())}.jpg"
+    unique_thumb_filename = f"{base_name}_{int(time.time())}.jpg"
     
-    # This is the actual path where the file will be saved inside the container
-    thumbnail_save_path = os.path.join(thumb_dir, unique_filename)
-    # This is the path the Go app will use to serve the file
-    thumbnail_return_path = os.path.join("uploads", "thumbnails", unique_filename)
+    thumbnail_save_path = os.path.join(thumb_dir, unique_thumb_filename)
+    thumbnail_return_path = os.path.join("uploads", "thumbnails", unique_thumb_filename)
 
     ocr_text = ""
     ext = os.path.splitext(filename)[1].lower()
 
-    if ext == ".pdf":
-        # Convert PDF to images once for both OCR and thumbnail
-        images = convert_from_bytes(contents, fmt="jpeg")
-        if images:
-            # OCR from all pages
-            for img in images:
-                ocr_text += pytesseract.image_to_string(img) + "\n"
-            
-            # Thumbnail from the first page
-            first_page_img = images[0]
-            first_page_img.thumbnail((500, 500))
-            first_page_img.save(thumbnail_save_path, format='JPEG')
+    try:
+        if ext == ".pdf":
+            images = convert_from_bytes(contents, fmt="jpeg")
+            if images:
+                for img in images:
+                    ocr_text += pytesseract.image_to_string(img) + "\n"
+                
+                first_page_img = images[0]
+                first_page_img.thumbnail((500, 500))
+                first_page_img.save(thumbnail_save_path, format='JPEG')
+            else:
+                thumbnail_return_path = ""
+                
+        elif ext in [".jpg", ".jpeg", ".png"]:
+            img = Image.open(io.BytesIO(contents))
+            ocr_text = pytesseract.image_to_string(img)
+            img.thumbnail((100, 100))
+            img.save(thumbnail_save_path, format='JPEG')
         else:
-            thumbnail_return_path = "" # No image, no thumbnail
-            
-    elif ext in [".jpg", ".jpeg", ".png"]:
-        img = Image.open(io.BytesIO(contents))
-        
-        # OCR
-        ocr_text = pytesseract.image_to_string(img)
-        
-        # Thumbnail
-        img.thumbnail((100, 100))
-        img.save(thumbnail_save_path, format='JPEG')
-    else:
-        thumbnail_return_path = "" # Unsupported type
+            thumbnail_return_path = "" # Unsupported type
 
-    logging.info(f"Extracted {len(ocr_text)} characters from {filename}")
+        logging.info(f"Extracted {len(ocr_text)} characters from {filename}")
 
-    # First, try to find a high-confidence date using SpaCy's NER
-    doc = nlp(ocr_text)
-    extracted_date = None
-    for ent in doc.ents:
-        if ent.label_ == "DATE":
-            # Found a date entity, now try to parse it.
-            found_dates = list(datefinder.find_dates(ent.text))
+        # Date extraction
+        doc = nlp(ocr_text)
+        extracted_date = None
+        for ent in doc.ents:
+            if ent.label_ == "DATE":
+                found_dates = list(datefinder.find_dates(ent.text))
+                if found_dates:
+                    extracted_date = found_dates[0].isoformat()
+                    break
+
+        if not extracted_date:
+            found_dates = list(datefinder.find_dates(ocr_text))
             if found_dates:
                 extracted_date = found_dates[0].isoformat()
-                break # Stop after finding the first valid date
 
-    # If the NLP model didn't find a date, fall back to a broader search
-    if not extracted_date:
-        found_dates = list(datefinder.find_dates(ocr_text))
-        if found_dates:
-            extracted_date = found_dates[0].isoformat()
+        if extracted_date:
+            logging.info(f"Found extracted date for {filename}: {extracted_date}")
 
-    if extracted_date:
-        logging.info(f"Found extracted date for {filename}: {extracted_date}")
-    else:
-        logging.info(f"No date found for {filename}")
-
-    logging.info(f"Finished processing {filename}. Thumbnail at: {thumbnail_return_path}")
-    return {"text": ocr_text, "thumbnail_path": thumbnail_return_path, "extracted_date": extracted_date, "file_hash": file_hash}
+        return {
+            "text": ocr_text,
+            "thumbnail_path": thumbnail_return_path,
+            "extracted_date": extracted_date,
+            "file_hash": file_hash,
+        }
+    except Exception as e:
+        logging.error(f"Error processing {filename}: {e}")
+        # Here, we would update the database with a 'failed' status
+        return None
 
 
 @app.post("/ocr")

@@ -17,3 +17,6 @@ data/
 uploads/ 
 
 .env
+.venv
+venv
+__pycache__

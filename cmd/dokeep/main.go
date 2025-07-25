@@ -14,7 +14,7 @@ import (
 	"dokeep/internal/middleware"
 	"dokeep/web/template"
 
-	"github.com/alexedwards/scs/sqlite3store"
+	"github.com/alexedwards/scs/postgresstore"
 	"github.com/alexedwards/scs/v2"
 	"github.com/pquerna/otp/totp"
 )
@@ -22,12 +22,12 @@ import (
 var sessionManager *scs.SessionManager
 
 func main() {
-	db := database.InitDB("data/dokeep.db")
+	db := database.InitDB()
 	defer db.Close()
 
 	// Initialize session manager
 	sessionManager = scs.New()
-	sessionManager.Store = sqlite3store.New(db)
+	sessionManager.Store = postgresstore.New(db)
 	sessionManager.Lifetime = 12 * time.Hour
 
 	authHandler := &handler.AuthHandler{DB: db, Session: sessionManager}
@@ -63,6 +63,9 @@ func main() {
 		totalPages := (totalDocs + 9) / 10
 		template.DashboardPage(username, docs, totalDocs, page, totalPages, query, flashError).Render(r.Context(), w)
 	}))
+
+	mux.HandleFunc("/queue", middleware.RequireAuth(sessionManager, docHandler.Queue))
+	mux.HandleFunc("/queue/status", middleware.RequireAuth(sessionManager, docHandler.QueueStatus))
 
 	mux.HandleFunc("/document", middleware.RequireAuth(sessionManager, docHandler.Show))
 

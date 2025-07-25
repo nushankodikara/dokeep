@@ -2,13 +2,23 @@ package database
 
 import (
 	"database/sql"
+	"fmt"
 	"log"
+	"os"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/lib/pq"
 )
 
-func InitDB(dataSourceName string) *sql.DB {
-	db, err := sql.Open("sqlite3", dataSourceName)
+func InitDB() *sql.DB {
+	host := os.Getenv("DB_HOST")
+	user := os.Getenv("DB_USER")
+	password := os.Getenv("DB_PASSWORD")
+	dbname := os.Getenv("DB_NAME")
+
+	connStr := fmt.Sprintf("host=%s user=%s password=%s dbname=%s sslmode=disable",
+		host, user, password, dbname)
+
+	db, err := sql.Open("postgres", connStr)
 	if err != nil {
 		log.Fatalf("could not connect to database: %v", err)
 	}
@@ -19,7 +29,7 @@ func InitDB(dataSourceName string) *sql.DB {
 
 	createUsersTableSQL := `
 	CREATE TABLE IF NOT EXISTS users (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		id SERIAL PRIMARY KEY,
 		username TEXT NOT NULL UNIQUE,
 		password_hash TEXT NOT NULL,
 		totp_secret TEXT,
@@ -33,8 +43,8 @@ func InitDB(dataSourceName string) *sql.DB {
 	createSessionsTableSQL := `
 	CREATE TABLE IF NOT EXISTS sessions (
 		token TEXT PRIMARY KEY,
-		data BLOB NOT NULL,
-		expiry REAL NOT NULL
+		data BYTEA NOT NULL,
+		expiry TIMESTAMPTZ NOT NULL
 	);`
 
 	if _, err := db.Exec(createSessionsTableSQL); err != nil {
@@ -43,17 +53,19 @@ func InitDB(dataSourceName string) *sql.DB {
 
 	createDocumentsTableSQL := `
 	CREATE TABLE IF NOT EXISTS documents (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		user_id INTEGER,
+		id SERIAL PRIMARY KEY,
+		user_id INTEGER REFERENCES users(id),
 		title TEXT NOT NULL,
+		original_filename TEXT,
 		file_path TEXT NOT NULL,
 		content TEXT,
 		thumbnail TEXT,
 		summary TEXT,
 		file_hash TEXT,
+		status TEXT NOT NULL DEFAULT 'queued',
+		status_message TEXT,
 		created_date DATE,
-		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-		FOREIGN KEY (user_id) REFERENCES users(id),
+		created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
 		UNIQUE (user_id, file_hash)
 	);`
 
@@ -63,7 +75,7 @@ func InitDB(dataSourceName string) *sql.DB {
 
 	createTagsTableSQL := `
 	CREATE TABLE IF NOT EXISTS tags (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		id SERIAL PRIMARY KEY,
 		name TEXT NOT NULL UNIQUE
 	);`
 
@@ -73,11 +85,9 @@ func InitDB(dataSourceName string) *sql.DB {
 
 	createDocumentTagsTableSQL := `
 	CREATE TABLE IF NOT EXISTS document_tags (
-		document_id INTEGER,
-		tag_id INTEGER,
-		PRIMARY KEY (document_id, tag_id),
-		FOREIGN KEY (document_id) REFERENCES documents(id),
-		FOREIGN KEY (tag_id) REFERENCES tags(id)
+		document_id INTEGER REFERENCES documents(id) ON DELETE CASCADE,
+		tag_id INTEGER REFERENCES tags(id) ON DELETE CASCADE,
+		PRIMARY KEY (document_id, tag_id)
 	);`
 
 	if _, err := db.Exec(createDocumentTagsTableSQL); err != nil {

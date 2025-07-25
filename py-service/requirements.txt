@@ -7,4 +7,6 @@ pytesseract
 spacy
 scikit-learn
 joblib
-datefinder 
+datefinder
+requests
+psycopg2-binary 

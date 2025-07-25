@@ -52,50 +52,45 @@ func (h *DocumentHandler) List(w http.ResponseWriter, r *http.Request) ([]model.
 
 	var documents []model.Document
 	var totalDocs int
-	var args []interface{}
-	var countArgs []interface{}
 
-	sqlQuery := `
-		SELECT DISTINCT d.id, d.title, d.file_path, d.thumbnail, d.content, d.summary, d.created_date, d.created_at
-		FROM documents d
-		LEFT JOIN document_tags dt ON d.id = dt.document_id
-		LEFT JOIN tags t ON dt.tag_id = t.id
-		WHERE d.user_id = ?
-	`
-	countQuery := `
-		SELECT COUNT(DISTINCT d.id)
-		FROM documents d
-		LEFT JOIN document_tags dt ON d.id = dt.document_id
-		LEFT JOIN tags t ON dt.tag_id = t.id
-		WHERE d.user_id = ?
-	`
-	args = append(args, userID)
-	countArgs = append(countArgs, userID)
+	// Base query components
+	baseSelect := "SELECT DISTINCT d.id, d.title, d.file_path, d.thumbnail, d.content, d.summary, d.created_date, d.created_at"
+	baseFrom := "FROM documents d LEFT JOIN document_tags dt ON d.id = dt.document_id LEFT JOIN tags t ON dt.tag_id = t.id"
+	countSelect := "SELECT COUNT(DISTINCT d.id)"
+
+	// Dynamic WHERE clause
+	whereClauses := []string{"d.user_id = $1"}
+	args := []interface{}{userID}
 
 	if query != "" {
-		searchCondition := `
-			AND (
-				d.title LIKE ? OR
-				d.content LIKE ? OR
-				d.summary LIKE ? OR
-				t.name LIKE ?
-			)
-		`
-		sqlQuery += searchCondition
-		countQuery += searchCondition
 		likeQuery := "%" + query + "%"
+		searchCondition := fmt.Sprintf(`(
+			d.title ILIKE $%d OR
+			d.content ILIKE $%d OR
+			d.summary ILIKE $%d OR
+			t.name ILIKE $%d
+		)`, len(args)+1, len(args)+2, len(args)+3, len(args)+4)
+		whereClauses = append(whereClauses, searchCondition)
 		args = append(args, likeQuery, likeQuery, likeQuery, likeQuery)
-		countArgs = append(countArgs, likeQuery, likeQuery, likeQuery, likeQuery)
 	}
 
-	sqlQuery += " ORDER BY d.created_date DESC, d.created_at DESC LIMIT ? OFFSET ?"
-	args = append(args, limit, offset)
+	fullWhere := ""
+	if len(whereClauses) > 0 {
+		fullWhere = "WHERE " + strings.Join(whereClauses, " AND ")
+	}
 
-	// Get total count for pagination
-	err := h.DB.QueryRow(countQuery, countArgs...).Scan(&totalDocs)
+	// Get total count for pagination first
+	countQuery := countSelect + " " + baseFrom + " " + fullWhere
+	err := h.DB.QueryRow(countQuery, args...).Scan(&totalDocs)
 	if err != nil {
 		return nil, 0, err
 	}
+
+	// Now, build the final query for the documents
+	orderBy := fmt.Sprintf("ORDER BY d.created_date DESC, d.created_at DESC LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
+	args = append(args, limit, offset)
+
+	sqlQuery := baseSelect + " " + baseFrom + " " + fullWhere + " " + orderBy
 
 	rows, err := h.DB.Query(sqlQuery, args...)
 	if err != nil {
@@ -106,12 +101,17 @@ func (h *DocumentHandler) List(w http.ResponseWriter, r *http.Request) ([]model.
 	for rows.Next() {
 		var doc model.Document
 		var createdDate sql.NullTime
-		if err := rows.Scan(&doc.ID, &doc.Title, &doc.FilePath, &doc.Thumbnail, &doc.Content, &doc.Summary, &createdDate, &doc.CreatedAt); err != nil {
+		var content, summary, filePath, thumbnail sql.NullString
+		if err := rows.Scan(&doc.ID, &doc.Title, &filePath, &thumbnail, &content, &summary, &createdDate, &doc.CreatedAt); err != nil {
 			return nil, 0, err
 		}
 		if createdDate.Valid {
 			doc.CreatedDate = createdDate.Time
 		}
+		doc.Content = content.String
+		doc.Summary = summary.String
+		doc.FilePath = filePath.String
+		doc.Thumbnail = thumbnail.String
 		documents = append(documents, doc)
 	}
 
@@ -123,7 +123,7 @@ func (h *DocumentHandler) GetTags(documentID int) ([]model.Tag, error) {
 		SELECT t.id, t.name
 		FROM tags t
 		JOIN document_tags dt ON t.id = dt.tag_id
-		WHERE dt.document_id = ?
+		WHERE dt.document_id = $1
 	`, documentID)
 	if err != nil {
 		return nil, err
@@ -151,22 +151,20 @@ func (h *DocumentHandler) addTagsToDocument(docID int, tags []string) {
 
 		// Check if tag exists, otherwise create it
 		var tagID int
-		err := h.DB.QueryRow("SELECT id FROM tags WHERE name = ?", normalizedTag).Scan(&tagID)
+		err := h.DB.QueryRow("SELECT id FROM tags WHERE name = $1", normalizedTag).Scan(&tagID)
 		if err == sql.ErrNoRows {
-			res, err := h.DB.Exec("INSERT INTO tags (name) VALUES (?)", normalizedTag)
+			err = h.DB.QueryRow("INSERT INTO tags (name) VALUES ($1) RETURNING id", normalizedTag).Scan(&tagID)
 			if err != nil {
 				log.Printf("Error inserting new tag '%s': %v", normalizedTag, err)
 				continue
 			}
-			id, _ := res.LastInsertId()
-			tagID = int(id)
 		} else if err != nil {
 			log.Printf("Error querying for tag '%s': %v", normalizedTag, err)
 			continue
 		}
 
 		// Associate tag with document
-		_, err = h.DB.Exec("INSERT OR IGNORE INTO document_tags (document_id, tag_id) VALUES (?, ?)", docID, tagID)
+		_, err = h.DB.Exec("INSERT INTO document_tags (document_id, tag_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", docID, tagID)
 		if err != nil {
 			log.Printf("Error associating tag '%s' with document %d: %v", normalizedTag, docID, err)
 		}
@@ -204,7 +202,8 @@ func (h *DocumentHandler) Show(w http.ResponseWriter, r *http.Request) {
 
 	var doc model.Document
 	var createdDate sql.NullTime
-	err = h.DB.QueryRow("SELECT id, title, file_path, thumbnail, content, summary, created_date, created_at FROM documents WHERE id = ? AND user_id = ?", id, userID).Scan(&doc.ID, &doc.Title, &doc.FilePath, &doc.Thumbnail, &doc.Content, &doc.Summary, &createdDate, &doc.CreatedAt)
+	var content, summary, filePath, thumbnail sql.NullString
+	err = h.DB.QueryRow("SELECT id, title, file_path, thumbnail, content, summary, created_date, created_at FROM documents WHERE id = $1 AND user_id = $2", id, userID).Scan(&doc.ID, &doc.Title, &filePath, &thumbnail, &content, &summary, &createdDate, &doc.CreatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			http.Error(w, "Document not found", http.StatusNotFound)
@@ -216,6 +215,10 @@ func (h *DocumentHandler) Show(w http.ResponseWriter, r *http.Request) {
 	if createdDate.Valid {
 		doc.CreatedDate = createdDate.Time
 	}
+	doc.Content = content.String
+	doc.Summary = summary.String
+	doc.FilePath = filePath.String
+	doc.Thumbnail = thumbnail.String
 
 	tags, err := h.GetTags(id)
 	if err != nil {
@@ -228,6 +231,74 @@ func (h *DocumentHandler) Show(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (h *DocumentHandler) Queue(w http.ResponseWriter, r *http.Request) {
+	userID := h.Session.GetInt(r.Context(), "userID")
+	username := h.Session.GetString(r.Context(), "username")
+
+	rows, err := h.DB.Query("SELECT id, title, original_filename, status, status_message FROM documents WHERE user_id = $1 AND status != 'completed' ORDER BY created_at ASC", userID)
+	if err != nil {
+		http.Error(w, "Failed to retrieve queued documents", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var documents []model.Document
+	for rows.Next() {
+		var doc model.Document
+		var statusMessage, originalFilename sql.NullString
+		if err := rows.Scan(&doc.ID, &doc.Title, &originalFilename, &doc.Status, &statusMessage); err != nil {
+			log.Printf("Error scanning queued document: %v", err)
+			continue
+		}
+		if statusMessage.Valid {
+			doc.StatusMessage = statusMessage.String
+		}
+		if originalFilename.Valid {
+			doc.OriginalFilename = originalFilename.String
+		}
+		documents = append(documents, doc)
+	}
+
+	if err := template.QueuePage(username, documents).Render(r.Context(), w); err != nil {
+		http.Error(w, "Error rendering queue page", http.StatusInternalServerError)
+	}
+}
+
+func (h *DocumentHandler) QueueStatus(w http.ResponseWriter, r *http.Request) {
+	userID := h.Session.GetInt(r.Context(), "userID")
+
+	rows, err := h.DB.Query("SELECT id, title, original_filename, status, status_message FROM documents WHERE user_id = $1 AND status != 'completed' ORDER BY created_at ASC", userID)
+	if err != nil {
+		// We don't write an error to the response here because this is for polling.
+		// A client-side error will be logged.
+		log.Printf("Error retrieving queue status for user %d: %v", userID, err)
+		return
+	}
+	defer rows.Close()
+
+	var documents []model.Document
+	for rows.Next() {
+		var doc model.Document
+		var statusMessage, originalFilename sql.NullString
+		if err := rows.Scan(&doc.ID, &doc.Title, &originalFilename, &doc.Status, &statusMessage); err != nil {
+			log.Printf("Error scanning queued document for status update: %v", err)
+			continue
+		}
+		if statusMessage.Valid {
+			doc.StatusMessage = statusMessage.String
+		}
+		if originalFilename.Valid {
+			doc.OriginalFilename = originalFilename.String
+		}
+		documents = append(documents, doc)
+	}
+
+	// Render only the rows, not the whole page
+	for _, doc := range documents {
+		template.QueueRow(doc).Render(r.Context(), w)
+	}
+}
+
 func (h *DocumentHandler) Upload(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseMultipartForm(10 << 20); err != nil {
 		http.Error(w, "Error parsing multipart form", http.StatusBadRequest)
@@ -235,8 +306,6 @@ func (h *DocumentHandler) Upload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	title := r.FormValue("title")
-	userSummary := r.FormValue("summary")
-	createdDateStr := r.FormValue("created_date")
 	file, header, err := r.FormFile("file")
 	if err != nil {
 		http.Error(w, "Error retrieving the file", http.StatusBadRequest)
@@ -244,145 +313,115 @@ func (h *DocumentHandler) Upload(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	// Ensure uploads directory exists
+	userID := h.Session.GetInt(r.Context(), "userID")
+
+	// 1. Save a record to the database first to get an ID
+	var docID int64
+	err = h.DB.QueryRow("INSERT INTO documents (user_id, title, original_filename, file_path) VALUES ($1, $2, $3, $4) RETURNING id",
+		userID, title, header.Filename, "").Scan(&docID)
+	if err != nil {
+		log.Printf("Error creating initial document record: %v", err)
+		http.Error(w, "Could not create document record", http.StatusInternalServerError)
+		return
+	}
+
+	// 2. Save the file to a permanent location with a unique name based on the ID
 	uploadDir := filepath.Join(".", "uploads")
 	if err := os.MkdirAll(uploadDir, os.ModePerm); err != nil {
 		http.Error(w, "Unable to create uploads directory", http.StatusInternalServerError)
 		return
 	}
 
-	// Create a temporary file
-	tempFile, err := os.CreateTemp(uploadDir, "upload-*.tmp")
-	if err != nil {
-		http.Error(w, "Could not create temporary file", http.StatusInternalServerError)
-		return
-	}
-	io.Copy(tempFile, file)
-	tempFile.Close() // Close the file so the python service can access it.
-
-	// Create a unique filename to avoid overwriting files
 	ext := filepath.Ext(header.Filename)
-	baseName := strings.TrimSuffix(header.Filename, ext)
-	newFileName := fmt.Sprintf("%s-%d%s", baseName, time.Now().Unix(), ext)
+	newFileName := fmt.Sprintf("%d%s", docID, ext)
 	filePath := filepath.Join(uploadDir, newFileName)
 
-	if err := os.Rename(tempFile.Name(), filePath); err != nil {
-		http.Error(w, "Could not rename temporary file", http.StatusInternalServerError)
-		return
-	}
-
-	// Call Python service for OCR and thumbnail
-	ocrResult, err := h.callOcrService(filePath)
+	savedFile, err := os.Create(filePath)
 	if err != nil {
-		log.Printf("Error from OCR service: %v", err)
-		// Important: Clean up the saved file if the microservice fails
-		os.Remove(filePath)
-		http.Error(w, "Failed to process document with external service. The document has not been saved.", http.StatusInternalServerError)
+		http.Error(w, "Could not save uploaded file", http.StatusInternalServerError)
+		return
+	}
+	defer savedFile.Close()
+
+	// Reset file pointer and copy to the new file
+	file.Seek(0, io.SeekStart)
+	if _, err := io.Copy(savedFile, file); err != nil {
+		http.Error(w, "Could not copy file content", http.StatusInternalServerError)
 		return
 	}
 
-	initialTags, err := h.callPredictService(ocrResult.Content)
+	// 3. Update the file_path in the database
+	_, err = h.DB.Exec("UPDATE documents SET file_path = $1 WHERE id = $2", filePath, docID)
 	if err != nil {
-		log.Printf("Prediction service failed: %v", err)
-		initialTags = []string{} // Default to empty list on error
+		log.Printf("Error updating file path for document %d: %v", docID, err)
+		os.Remove(filePath) // Cleanup
+		http.Error(w, "Could not update document record", http.StatusInternalServerError)
+		return
 	}
 
-	llmResult, err := h.callLlmService(ocrResult.Content, initialTags)
+	// 4. Call the Python service to queue the file for processing
+	if err := h.callProcessService(filePath, docID); err != nil {
+		log.Printf("Error calling process service for document %d: %v", docID, err)
+		os.Remove(filePath) // Cleanup
+		// Also delete the DB record
+		h.DB.Exec("DELETE FROM documents WHERE id = $1", docID)
+		http.Error(w, "Failed to queue document for processing.", http.StatusInternalServerError)
+		return
+	}
+
+	// 5. Redirect to the queue page
+	http.Redirect(w, r, "/queue", http.StatusSeeOther)
+}
+
+// callProcessService sends the file to the Python service to be queued.
+func (h *DocumentHandler) callProcessService(filePath string, docID int64) error {
+	file, err := os.Open(filePath)
 	if err != nil {
-		log.Printf("LLM analysis failed: %v. Proceeding without LLM data.", err)
-		// Non-fatal, so we'll just log and continue, but use initial tags as a fallback
-		llmResult = &LlmAnalysisResult{Tags: initialTags}
+		return fmt.Errorf("could not open file for processing service: %w", err)
+	}
+	defer file.Close()
+
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+
+	// Add the doc_id as a form field
+	if err := writer.WriteField("doc_id", strconv.FormatInt(docID, 10)); err != nil {
+		return fmt.Errorf("could not write doc_id field: %w", err)
 	}
 
-	// Use user's summary if provided, otherwise fall back to LLM's summary
-	finalSummary := userSummary
-	if finalSummary == "" {
-		finalSummary = llmResult.Summary
-	}
-
-	var createdDate time.Time
-	// Priority: User > LLM > OCR > Now
-	// First, try the user-provided date
-	if createdDateStr != "" {
-		parsedDate, err := time.Parse("2006-01-02", createdDateStr)
-		if err == nil {
-			createdDate = parsedDate
-		}
-	}
-
-	// If the user didn't provide a valid date, try the extracted date from LLM
-	if createdDate.IsZero() && llmResult.ExtractedDate != "" {
-		// LLM's extracted date is in a specific format, e.g., "YYYY-MM-DDTHH:MM:SS"
-		const layout = "2006-01-02T15:04:05"
-		parsedDate, err := time.Parse(layout, llmResult.ExtractedDate)
-		if err == nil {
-			createdDate = parsedDate
-		} else {
-			log.Printf("Could not parse LLM extracted date '%s': %v. Defaulting to current time.", llmResult.ExtractedDate, err)
-		}
-	}
-
-	// If we still don't have a date, try the extracted date from OCR
-	if createdDate.IsZero() && ocrResult.ExtractedDate != "" {
-		// Python's isoformat on a naive datetime is like "YYYY-MM-DDTHH:MM:SS".
-		// We need to parse this specific format, not the full RFC3339 with timezone.
-		const layout = "2006-01-02T15:04:05"
-		parsedDate, err := time.Parse(layout, ocrResult.ExtractedDate)
-		if err == nil {
-			createdDate = parsedDate
-		} else {
-			log.Printf("Could not parse extracted date '%s': %v. Defaulting to current time.", ocrResult.ExtractedDate, err)
-		}
-	}
-
-	// If we still don't have a date, default to now
-	if createdDate.IsZero() {
-		createdDate = time.Now()
-	}
-
-	userID := h.Session.GetInt(r.Context(), "userID")
-
-	// Check for duplicate hash for this user
-	var existingID int
-	err = h.DB.QueryRow("SELECT id FROM documents WHERE user_id = ? AND file_hash = ?", userID, ocrResult.FileHash).Scan(&existingID)
-	if err != nil && err != sql.ErrNoRows {
-		// Real database error
-		os.Remove(filePath) // Clean up
-		http.Error(w, "Database error during duplicate check", http.StatusInternalServerError)
-		return
-	}
-	if existingID > 0 {
-		// Duplicate found
-		os.Remove(filePath) // Clean up the new file
-		log.Printf("Duplicate file upload blocked for user %d. Hash: %s", userID, ocrResult.FileHash)
-		h.Session.Put(r.Context(), "flash_error", "This file has already been uploaded.")
-		http.Redirect(w, r, "/dashboard", http.StatusSeeOther)
-		return
-	}
-
-	// Now that everything is successful, save the document to the database
-	res, err := h.DB.Exec("INSERT INTO documents (user_id, title, file_path, content, thumbnail, summary, created_date, file_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-		userID, title, filePath, ocrResult.Content, ocrResult.ThumbnailPath, finalSummary, createdDate, ocrResult.FileHash)
+	part, err := writer.CreateFormFile("file", filepath.Base(filePath))
 	if err != nil {
-		log.Printf("Error saving document to database: %v", err)
-		// Clean up files if DB insert fails
-		os.Remove(filePath)
-		if ocrResult.ThumbnailPath != "" {
-			os.Remove(ocrResult.ThumbnailPath)
-		}
-		http.Error(w, "Error saving document to database", http.StatusInternalServerError)
-		return
+		return fmt.Errorf("could not create form file: %w", err)
+	}
+	if _, err := io.Copy(part, file); err != nil {
+		return fmt.Errorf("could not copy file to form: %w", err)
+	}
+	writer.Close()
+
+	serviceURL := "http://dokeep-service:8000/process"
+	if os.Getenv("DOKEEP_ENV") != "docker" {
+		serviceURL = "http://localhost:8000/process"
 	}
 
-	docID, _ := res.LastInsertId()
+	req, err := http.NewRequest("POST", serviceURL, body)
+	if err != nil {
+		return fmt.Errorf("could not create request to process service: %w", err)
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
 
-	// Add final tags from LLM (or the initial tags if LLM failed)
-	if len(llmResult.Tags) > 0 {
-		h.addTagsToDocument(int(docID), llmResult.Tags)
+	client := &http.Client{Timeout: 1 * time.Minute} // 1 minute timeout should be plenty
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("process service request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("process service returned non-OK status: %s - %s", resp.Status, string(respBody))
 	}
 
-	log.Printf("Successfully uploaded and processed document ID: %d", docID)
-	http.Redirect(w, r, "/dashboard", http.StatusSeeOther)
+	return nil
 }
 
 func (h *DocumentHandler) Train(w http.ResponseWriter, r *http.Request) {
@@ -454,7 +493,7 @@ func (h *DocumentHandler) RemoveTag(w http.ResponseWriter, r *http.Request) {
 
 	// Get tag ID
 	var tagID int
-	err = h.DB.QueryRow("SELECT id FROM tags WHERE name = ?", normalizedTag).Scan(&tagID)
+	err = h.DB.QueryRow("SELECT id FROM tags WHERE name = $1", normalizedTag).Scan(&tagID)
 	if err != nil {
 		log.Printf("Attempted to remove non-existent tag '%s' (normalized: '%s')", tagName, normalizedTag)
 		http.Error(w, "Tag not found", http.StatusNotFound)
@@ -462,7 +501,7 @@ func (h *DocumentHandler) RemoveTag(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Remove association
-	_, err = h.DB.Exec("DELETE FROM document_tags WHERE document_id = ? AND tag_id = ?", documentID, tagID)
+	_, err = h.DB.Exec("DELETE FROM document_tags WHERE document_id = $1 AND tag_id = $2", documentID, tagID)
 	if err != nil {
 		http.Error(w, "Failed to remove tag association", http.StatusInternalServerError)
 		return
@@ -488,8 +527,8 @@ func (h *DocumentHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	userID := h.Session.GetInt(r.Context(), "userID")
 
 	// First, verify the user owns the document and get the file paths
-	var filePath, thumbnailPath string
-	err = h.DB.QueryRow("SELECT file_path, thumbnail FROM documents WHERE id = ? AND user_id = ?", documentID, userID).Scan(&filePath, &thumbnailPath)
+	var filePath, thumbnailPath sql.NullString
+	err = h.DB.QueryRow("SELECT file_path, thumbnail FROM documents WHERE id = $1 AND user_id = $2", documentID, userID).Scan(&filePath, &thumbnailPath)
 	if err != nil {
 		log.Printf("Delete handler: Document not found or access denied for doc %d and user %d. Error: %v", documentID, userID, err)
 		http.Error(w, "Document not found or access denied", http.StatusNotFound)
@@ -497,29 +536,29 @@ func (h *DocumentHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Delete the document record from the database
-	_, err = h.DB.Exec("DELETE FROM documents WHERE id = ?", documentID)
+	_, err = h.DB.Exec("DELETE FROM documents WHERE id = $1", documentID)
 	if err != nil {
 		log.Printf("Delete handler: Failed to delete document %d from database. Error: %v", documentID, err)
 		http.Error(w, "Failed to delete document from database", http.StatusInternalServerError)
 		return
 	}
 
-	// Also delete the associated tags
-	_, err = h.DB.Exec("DELETE FROM document_tags WHERE document_id = ?", documentID)
+	// Also delete the associated tags in the same transaction
+	_, err = h.DB.Exec("DELETE FROM document_tags WHERE document_id = $1", documentID)
 	if err != nil {
 		log.Printf("Delete handler: Failed to delete tags for document %d. Error: %v", documentID, err)
 		// Log this error, but don't block the user
 	}
 
 	// Delete the actual files from the filesystem
-	if filePath != "" {
-		if err := os.Remove(filePath); err != nil {
-			log.Printf("Delete handler: Failed to remove file %s. Error: %v", filePath, err)
+	if filePath.Valid {
+		if err := os.Remove(filePath.String); err != nil {
+			log.Printf("Delete handler: Failed to remove file %s. Error: %v", filePath.String, err)
 		}
 	}
-	if thumbnailPath != "" {
-		if err := os.Remove(thumbnailPath); err != nil {
-			log.Printf("Delete handler: Failed to remove thumbnail %s. Error: %v", thumbnailPath, err)
+	if thumbnailPath.Valid {
+		if err := os.Remove(thumbnailPath.String); err != nil {
+			log.Printf("Delete handler: Failed to remove thumbnail %s. Error: %v", thumbnailPath.String, err)
 		}
 	}
 
@@ -554,7 +593,7 @@ func (h *DocumentHandler) UpdateDate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userID := h.Session.GetInt(r.Context(), "userID")
-	_, err = h.DB.Exec("UPDATE documents SET created_date = ? WHERE id = ? AND user_id = ?", createdDate, documentID, userID)
+	_, err = h.DB.Exec("UPDATE documents SET created_date = $1 WHERE id = $2 AND user_id = $3", createdDate, documentID, userID)
 	if err != nil {
 		log.Printf("UpdateDate handler: Failed to update date for doc %d and user %d. Error: %v", documentID, userID, err)
 		http.Error(w, "Failed to update document date", http.StatusInternalServerError)
@@ -592,7 +631,7 @@ func (h *DocumentHandler) UpdateDetails(w http.ResponseWriter, r *http.Request) 
 	}
 
 	userID := h.Session.GetInt(r.Context(), "userID")
-	_, err = h.DB.Exec("UPDATE documents SET title = ?, summary = ?, created_date = ? WHERE id = ? AND user_id = ?",
+	_, err = h.DB.Exec("UPDATE documents SET title = $1, summary = $2, created_date = $3 WHERE id = $4 AND user_id = $5",
 		title, summary, createdDate, documentID, userID)
 	if err != nil {
 		http.Error(w, "Failed to update document details", http.StatusInternalServerError)
@@ -600,184 +639,4 @@ func (h *DocumentHandler) UpdateDetails(w http.ResponseWriter, r *http.Request) 
 	}
 
 	http.Redirect(w, r, fmt.Sprintf("/document?id=%d", documentID), http.StatusSeeOther)
-}
-
-func (h *DocumentHandler) callOcrService(filePath string) (*OcrResult, error) {
-	file, err := os.Open(filePath)
-	if err != nil {
-		return nil, fmt.Errorf("could not open file for ocr service: %w", err)
-	}
-	defer file.Close()
-
-	body := &bytes.Buffer{}
-	writer := multipart.NewWriter(body)
-	part, err := writer.CreateFormFile("file", filepath.Base(filePath))
-	if err != nil {
-		return nil, fmt.Errorf("could not create form file: %w", err)
-	}
-	if _, err := io.Copy(part, file); err != nil {
-		return nil, fmt.Errorf("could not copy file to form: %w", err)
-	}
-	writer.Close()
-
-	// Determine the service URL based on the environment
-	// In Docker, the service is reachable by its name. Locally, it's localhost.
-	serviceURL := "http://dokeep-service:8000/process"
-	if os.Getenv("DOKEEP_ENV") != "docker" {
-		serviceURL = "http://localhost:8000/process"
-	}
-
-	req, err := http.NewRequest("POST", serviceURL, body)
-	if err != nil {
-		return nil, fmt.Errorf("could not create request to ocr service: %w", err)
-	}
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-
-	client := &http.Client{Timeout: 5 * time.Minute}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("ocr service request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("ocr service returned non-OK status: %s - %s", resp.Status, string(respBody))
-	}
-
-	var result OcrResult
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("could not decode ocr service response: %w", err)
-	}
-
-	return &result, nil
-}
-
-func (h *DocumentHandler) callPredictService(content string) ([]string, error) {
-	serviceURL := "http://dokeep-service:8000/predict"
-	if os.Getenv("DOKEEP_ENV") != "docker" {
-		serviceURL = "http://localhost:8000/predict"
-	}
-
-	requestBody, err := json.Marshal(map[string]string{"document": content})
-	if err != nil {
-		return nil, fmt.Errorf("could not marshal predict request: %w", err)
-	}
-
-	req, err := http.NewRequest("POST", serviceURL, bytes.NewBuffer(requestBody))
-	if err != nil {
-		return nil, fmt.Errorf("could not create request to predict service: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 5 * time.Minute}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("predict service request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("predict service returned non-OK status: %s", resp.Status)
-	}
-
-	var result map[string][]string
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("could not decode predict service response: %w", err)
-	}
-	return result["tags"], nil
-}
-
-func (h *DocumentHandler) callLlmService(content string, initialTags []string) (*LlmAnalysisResult, error) {
-	serviceURL := "http://llm-service:8001/analyze"
-	if os.Getenv("DOKEEP_ENV") != "docker" {
-		serviceURL = "http://localhost:8001/analyze"
-	}
-
-	requestBody, err := json.Marshal(map[string]interface{}{
-		"content":      content,
-		"initial_tags": initialTags,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("could not marshal llm request: %w", err)
-	}
-
-	req, err := http.NewRequest("POST", serviceURL, bytes.NewBuffer(requestBody))
-	if err != nil {
-		return nil, fmt.Errorf("could not create request to llm service: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 10 * time.Minute} // Generous timeout for LLM
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("llm service request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("llm service returned non-OK status: %s", resp.Status)
-	}
-
-	var result LlmAnalysisResult
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("could not decode llm service response: %w", err)
-	}
-	return &result, nil
-}
-
-func (h *DocumentHandler) analyzeAndSaveContent(documentID int64, content string, initialTags []string) {
-	// Check if AI features are disabled
-	if os.Getenv("DISABLE_AI") == "1" {
-		log.Println("AI features are disabled. Skipping content analysis.")
-		return
-	}
-
-	serviceURL := "http://llm-service:8001/analyze"
-
-	requestBody, err := json.Marshal(map[string]interface{}{
-		"content":      content,
-		"initial_tags": initialTags,
-	})
-	if err != nil {
-		log.Printf("Error marshalling request for document %d: %v", documentID, err)
-		return
-	}
-
-	req, err := http.NewRequest("POST", serviceURL, bytes.NewBuffer(requestBody))
-	if err != nil {
-		log.Printf("Error creating request for document %d: %v", documentID, err)
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 10 * time.Minute}
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Printf("Error sending request for document %d: %v", documentID, err)
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		log.Printf("Non-OK status for document %d: %s", documentID, resp.Status)
-		return
-	}
-
-	var result LlmAnalysisResult
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		log.Printf("Error decoding response for document %d: %v", documentID, err)
-		return
-	}
-
-	// Save the results to the database
-	_, err = h.DB.Exec("UPDATE documents SET summary = ?, created_date = ? WHERE id = ?",
-		result.Summary, result.ExtractedDate, documentID)
-	if err != nil {
-		log.Printf("Error updating document %d: %v", documentID, err)
-		return
-	}
-
-	// Add the tags to the document
-	h.addTagsToDocument(int(documentID), result.Tags)
 }
