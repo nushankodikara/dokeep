@@ -84,21 +84,51 @@ def update_document_status(doc_id: int, status: str, message: str = ""):
 
 def update_document_with_results(doc_id: int, result: dict):
     """
-    Updates the document record with the analysis results after calling the LLM service.
+    Updates the document record with the analysis results. It first checks for
+    duplicates by saving the file hash, and only proceeds to expensive AI analysis
+    if the document is unique.
     """
     conn = get_db_connection()
     if conn is None:
         return
 
+    file_hash = result.get("file_hash")
+    if not file_hash:
+        update_document_status(doc_id, "failed", "Could not calculate file hash.")
+        return
+
+    try:
+        # Phase 1: Check for duplicates by saving the hash first.
+        with conn.cursor() as cursor:
+            cursor.execute("UPDATE documents SET file_hash = %s WHERE id = %s", (file_hash, doc_id))
+            conn.commit()
+        logging.info(f"Successfully saved file hash for document {doc_id}.")
+
+    except errors.UniqueViolation as e:
+        # This is a duplicate file, so we clean it up completely and stop.
+        logging.warning(f"Duplicate document detected for doc_id {doc_id} based on file hash. Cleaning up.")
+        cleanup_failed_document(doc_id, result.get("thumbnail_path"))
+        if conn:
+            conn.close()
+        return  # Stop processing
+    except Exception as e:
+        logging.error(f"Failed to save file_hash for document {doc_id}: {e}")
+        update_document_status(doc_id, "failed", f"Error saving file hash to database: {e}")
+        if conn:
+            conn.close()
+        return  # Stop processing
+
+    # If we reach here, the document is unique.
+    # Phase 2: Perform expensive analysis and save the final results.
     try:
         with conn.cursor() as cursor:
             # Get final analysis from LLM
             llm_result = call_llm_service(result.get("text", ""))
-            
+
             # Combine results
             final_summary = llm_result.get("summary", "")
             final_tags = llm_result.get("tags", [])
-            
+
             # Use LLM date if available, otherwise fall back to OCR date
             final_date_str = llm_result.get("extracted_date")
             if not final_date_str:
@@ -107,37 +137,32 @@ def update_document_with_results(doc_id: int, result: dict):
             cursor.execute(
                 """
                 UPDATE documents
-                SET content = %s, thumbnail = %s, file_hash = %s, summary = %s, created_date = %s, status = 'completed'
+                SET content = %s, thumbnail = %s, summary = %s, created_date = %s, status = 'completed'
                 WHERE id = %s
                 """,
                 (
                     result.get("text"),
                     result.get("thumbnail_path"),
-                    result.get("file_hash"),
                     final_summary,
-                    final_date_str, # Store as string, Go app will parse
+                    final_date_str,  # Store as string, Go app will parse
                     doc_id,
                 ),
             )
             conn.commit()
-            
+
             # Add tags to the document
             add_tags_to_document(doc_id, final_tags)
-            
-        logging.info(f"Successfully saved all results for document {doc_id}")
-    except errors.UniqueViolation as e:
-        logging.warning(f"Duplicate document detected for doc_id {doc_id} based on file hash. Cleaning up.")
-        # This is a duplicate file, so we clean it up completely.
-        cleanup_failed_document(doc_id)
+
+        logging.info(f"Successfully saved all analysis results for document {doc_id}")
     except Exception as e:
-        logging.error(f"Failed to save results for document {doc_id}: {e}")
-        update_document_status(doc_id, "failed", f"Error saving results to database: {e}")
+        logging.error(f"Failed to save final results for document {doc_id}: {e}")
+        update_document_status(doc_id, "failed", f"Error during final analysis and save: {e}")
     finally:
         if conn:
             conn.close()
 
 
-def cleanup_failed_document(doc_id: int):
+def cleanup_failed_document(doc_id: int, thumbnail_path_from_processing: str = None):
     """
     Deletes the document record and associated files for a failed upload,
     typically used for duplicates.
@@ -150,15 +175,18 @@ def cleanup_failed_document(doc_id: int):
 
     try:
         with conn.cursor(cursor_factory=DictCursor) as cursor:
-            # 1. Get file paths before deleting the record
+            # 1. Get file path before deleting the record
             cursor.execute("SELECT file_path, thumbnail FROM documents WHERE id = %s", (doc_id,))
             record = cursor.fetchone()
             if not record:
                 logging.warning(f"Cleanup for doc {doc_id}: Record already gone.")
+                # Still try to clean up the thumbnail if we have its path
+                if thumbnail_path_from_processing and os.path.exists(thumbnail_path_from_processing):
+                    os.remove(thumbnail_path_from_processing)
+                    logging.info(f"Deleted orphaned thumbnail: {thumbnail_path_from_processing}")
                 return
 
             file_path = record["file_path"]
-            thumbnail_path = record["thumbnail"]
 
             # 2. Delete the document record from the database
             cursor.execute("DELETE FROM documents WHERE id = %s", (doc_id,))
@@ -169,10 +197,11 @@ def cleanup_failed_document(doc_id: int):
             if file_path and os.path.exists(file_path):
                 os.remove(file_path)
                 logging.info(f"Deleted file: {file_path}")
-            
-            if thumbnail_path and os.path.exists(thumbnail_path):
-                os.remove(thumbnail_path)
-                logging.info(f"Deleted thumbnail: {thumbnail_path}")
+
+            # Use the path passed from the processing step for the thumbnail, as it's not in the DB yet.
+            if thumbnail_path_from_processing and os.path.exists(thumbnail_path_from_processing):
+                os.remove(thumbnail_path_from_processing)
+                logging.info(f"Deleted thumbnail: {thumbnail_path_from_processing}")
 
     except Exception as e:
         logging.error(f"An error occurred during cleanup for document {doc_id}: {e}")
