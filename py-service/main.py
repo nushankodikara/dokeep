@@ -22,6 +22,7 @@ import sqlite3
 import requests
 import psycopg2
 from psycopg2.extras import DictCursor
+from psycopg2 import errors
 
 app = FastAPI()
 
@@ -124,9 +125,57 @@ def update_document_with_results(doc_id: int, result: dict):
             add_tags_to_document(doc_id, final_tags)
             
         logging.info(f"Successfully saved all results for document {doc_id}")
+    except errors.UniqueViolation as e:
+        logging.warning(f"Duplicate document detected for doc_id {doc_id} based on file hash. Cleaning up.")
+        # This is a duplicate file, so we clean it up completely.
+        cleanup_failed_document(doc_id)
     except Exception as e:
         logging.error(f"Failed to save results for document {doc_id}: {e}")
         update_document_status(doc_id, "failed", f"Error saving results to database: {e}")
+    finally:
+        if conn:
+            conn.close()
+
+
+def cleanup_failed_document(doc_id: int):
+    """
+    Deletes the document record and associated files for a failed upload,
+    typically used for duplicates.
+    """
+    logging.info(f"Initiating cleanup for failed document ID: {doc_id}")
+    conn = get_db_connection()
+    if conn is None:
+        logging.error(f"Cleanup failed for doc {doc_id}: could not get DB connection.")
+        return
+
+    try:
+        with conn.cursor(cursor_factory=DictCursor) as cursor:
+            # 1. Get file paths before deleting the record
+            cursor.execute("SELECT file_path, thumbnail FROM documents WHERE id = %s", (doc_id,))
+            record = cursor.fetchone()
+            if not record:
+                logging.warning(f"Cleanup for doc {doc_id}: Record already gone.")
+                return
+
+            file_path = record["file_path"]
+            thumbnail_path = record["thumbnail"]
+
+            # 2. Delete the document record from the database
+            cursor.execute("DELETE FROM documents WHERE id = %s", (doc_id,))
+            conn.commit()
+            logging.info(f"Deleted document record for ID: {doc_id}")
+
+            # 3. Delete the files from the filesystem
+            if file_path and os.path.exists(file_path):
+                os.remove(file_path)
+                logging.info(f"Deleted file: {file_path}")
+            
+            if thumbnail_path and os.path.exists(thumbnail_path):
+                os.remove(thumbnail_path)
+                logging.info(f"Deleted thumbnail: {thumbnail_path}")
+
+    except Exception as e:
+        logging.error(f"An error occurred during cleanup for document {doc_id}: {e}")
     finally:
         if conn:
             conn.close()
