@@ -7,6 +7,7 @@ import logging
 from pydantic import BaseModel
 import datetime
 from typing import Optional, List
+import json
 
 # Load environment variables from .env file
 load_dotenv()
@@ -31,9 +32,11 @@ else:
 
 class AnalysisRequest(BaseModel):
     content: str
+    filename: Optional[str] = None
     initial_tags: List[str] = []
 
 class AnalysisResponse(BaseModel):
+    title: Optional[str] = None
     extracted_date: Optional[datetime.datetime] = None
     tags: List[str] = []
     summary: Optional[str] = None
@@ -51,24 +54,40 @@ async def startup_event():
 @app.post("/analyze", response_model=AnalysisResponse)
 async def analyze_content(request: AnalysisRequest):
     logging.info("Received request for content analysis.")
-    prompt = f"""
-    You are an expert document analyst. Your task is to analyze the following document content and a list of initial machine learning-generated tags. Your goal is to refine and improve this list and provide a concise summary.
 
-    Based on the document content, please provide:
-    1. The creation date of the document in YYYY-MM-DD format if a clear date is present.
-    2. A final, refined list of 3 to 5 relevant tags.
-    3. A concise, one or two-sentence summary of the document.
+    # Base prompt
+    prompt_lines = [
+        "You are an expert document analyst. Your task is to analyze the following document content."
+    ]
+    
+    # JSON keys to expect in the response
+    json_keys = ["extracted_date", "tags", "summary"]
+    
+    # Instructions list
+    instructions = [
+        "1. The creation date of the document in YYYY-MM-DD format if a clear date is present.",
+        "2. A final, refined list of 3 to 5 relevant tags.",
+        "3. A concise, one or two-sentence summary of the document."
+    ]
 
-    Respond with ONLY a JSON object with three keys: "extracted_date", "tags", and "summary".
-    Example response: {{"extracted_date": "2023-01-15", "tags": "finance, quarterly report, planning", "summary": "This document is a quarterly financial report detailing revenue and projections."}}
+    # Conditionally add title generation to the prompt
+    if request.filename:
+        prompt_lines.append(f"The original filename is '{request.filename}'. Use this and the content to generate a short, descriptive title for the document.")
+        instructions.insert(0, "1. A short, descriptive title for the document.")
+        json_keys.insert(0, "title")
 
-    Initial Tags: {", ".join(request.initial_tags)}
+    prompt_lines.append("Based on the document content, please provide:")
+    prompt_lines.extend(instructions)
+    prompt_lines.append(f"Respond with ONLY a JSON object with the keys: {json.dumps(json_keys)}.")
+    
+    prompt = "\n".join(prompt_lines) + f"""
     ---
     Document Content:
     ---
     {request.content}
     ---
     """
+
     try:
         if LLM_PROVIDER == "openai":
             client = openai.OpenAI()
@@ -82,7 +101,6 @@ async def analyze_content(request: AnalysisRequest):
             response = ollama.generate(model=OLLAMA_MODEL, prompt=prompt, format='json')
             result_str = response['response']
 
-        import json
         result = json.loads(result_str)
         
         # Validate and format the date
@@ -99,9 +117,10 @@ async def analyze_content(request: AnalysisRequest):
             tags = [tag.strip() for tag in tags.split(',')]
         
         summary = result.get("summary", None)
+        title = result.get("title", None)
 
-        logging.info(f"Analysis complete. Found date: {extracted_date}, Found tags: {tags}, Found summary: {summary}")
-        return AnalysisResponse(extracted_date=extracted_date, tags=tags, summary=summary)
+        logging.info(f"Analysis complete. Found title: {title}, date: {extracted_date}, tags: {tags}, summary: {summary}")
+        return AnalysisResponse(title=title, extracted_date=extracted_date, tags=tags, summary=summary)
         
     except Exception as e:
         logging.error(f"Error during LLM analysis: {e}")

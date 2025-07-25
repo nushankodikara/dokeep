@@ -29,18 +29,23 @@ app = FastAPI()
 # --- LLM Service Communication ---
 LLM_SERVICE_URL = os.getenv("LLM_SERVICE_URL", "http://llm-service:8001/analyze")
 
-def call_llm_service(content: str) -> dict:
+def call_llm_service(content: str, filename: str = None) -> dict:
     """
     Calls the LLM service to get summary, tags, and extracted date.
+    Optionally requests a title if a filename is provided.
     """
     if os.getenv("DISABLE_AI") == "1":
         logging.info("AI features are disabled. Skipping LLM service call.")
         return {}
     
+    payload = {"content": content}
+    if filename:
+        payload["filename"] = filename
+
     try:
         response = requests.post(
             LLM_SERVICE_URL,
-            json={"content": content, "initial_tags": []}, # We are not using initial tags for now
+            json=payload,
             timeout=600 # 10 minute timeout
         )
         response.raise_for_status()
@@ -121,33 +126,45 @@ def update_document_with_results(doc_id: int, result: dict):
     # If we reach here, the document is unique.
     # Phase 2: Perform expensive analysis and save the final results.
     try:
-        with conn.cursor() as cursor:
-            # Get final analysis from LLM
-            llm_result = call_llm_service(result.get("text", ""))
+        with conn.cursor(cursor_factory=DictCursor) as cursor:
+            # Check if a title was already provided by the user
+            cursor.execute("SELECT title, original_filename FROM documents WHERE id = %s", (doc_id,))
+            doc_info = cursor.fetchone()
+            user_provided_title = doc_info["title"] if doc_info else None
+            original_filename = doc_info["original_filename"] if doc_info else None
+
+            # Get final analysis from LLM, requesting a title if one wasn't provided
+            llm_payload_filename = original_filename if not user_provided_title else None
+            llm_result = call_llm_service(result.get("text", ""), filename=llm_payload_filename)
 
             # Combine results
             final_summary = llm_result.get("summary", "")
             final_tags = llm_result.get("tags", [])
+            ai_generated_title = llm_result.get("title")
 
             # Use LLM date if available, otherwise fall back to OCR date
             final_date_str = llm_result.get("extracted_date")
             if not final_date_str:
                 final_date_str = result.get("extracted_date")
 
-            cursor.execute(
-                """
-                UPDATE documents
-                SET content = %s, thumbnail = %s, summary = %s, created_date = %s, status = 'completed'
-                WHERE id = %s
-                """,
-                (
-                    result.get("text"),
-                    result.get("thumbnail_path"),
-                    final_summary,
-                    final_date_str,  # Store as string, Go app will parse
-                    doc_id,
-                ),
-            )
+            # Start building the update query
+            update_query = "UPDATE documents SET content = %s, thumbnail = %s, summary = %s, created_date = %s, status = 'completed'"
+            params = [
+                result.get("text"),
+                result.get("thumbnail_path"),
+                final_summary,
+                final_date_str,
+            ]
+
+            # Add title to the update query only if it was generated
+            if ai_generated_title and not user_provided_title:
+                update_query += ", title = %s"
+                params.append(ai_generated_title)
+
+            update_query += " WHERE id = %s"
+            params.append(doc_id)
+
+            cursor.execute(update_query, tuple(params))
             conn.commit()
 
             # Add tags to the document
