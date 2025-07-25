@@ -1,14 +1,23 @@
 package template
 
 import "dokeep/internal/model"
+import "fmt"
 
-templ QueuePage(username string, documents []model.Document) {
+templ QueuePage(username string, documents []model.Document, stats model.QueueStats) {
 	@Layout(username) {
 		<div class="container mx-auto px-4 sm:px-8">
 			<div class="py-8">
 				<div>
 					<h2 class="text-2xl font-semibold leading-tight">Processing Queue</h2>
 				</div>
+
+				<!-- Stat Cards -->
+				<div class="grid grid-cols-1 md:grid-cols-3 gap-4 my-4">
+					@statCard("Waiting", "bg-yellow-100 border-yellow-400", stats.Waiting)
+					@statCard("Processing", "bg-blue-100 border-blue-400", stats.Processing)
+					@statCard("Failed", "bg-red-100 border-red-400", stats.Failed)
+				</div>
+
 				<div class="-mx-4 sm:-mx-8 px-4 sm:px-8 py-4 overflow-x-auto">
 					<div class="inline-block min-w-full shadow rounded-lg overflow-hidden">
 						<table class="min-w-full leading-normal">
@@ -86,4 +95,11 @@ templ QueueRow(doc model.Document) {
 			}
 		</td>
 	</tr>
+}
+
+templ statCard(title string, colorClasses string, count int) {
+	<div class={ "border-l-4 p-4 rounded-md shadow-sm " + colorClasses }>
+		<h3 class="text-sm font-medium text-gray-500">{ title }</h3>
+		<p class="mt-1 text-3xl font-semibold text-gray-900">{ fmt.Sprintf("%d", count) }</p>
+	</div>
 } 

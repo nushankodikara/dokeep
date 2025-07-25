@@ -235,7 +235,12 @@ func (h *DocumentHandler) Queue(w http.ResponseWriter, r *http.Request) {
 	userID := h.Session.GetInt(r.Context(), "userID")
 	username := h.Session.GetString(r.Context(), "username")
 
-	rows, err := h.DB.Query("SELECT id, title, original_filename, status, status_message FROM documents WHERE user_id = $1 AND status != 'completed' ORDER BY created_at ASC", userID)
+	// Get counts for the stat cards
+	queuedCount, _ := h.getDocumentCountByStatus(userID, "queued")
+	processingCount, _ := h.getDocumentCountByStatus(userID, "processing")
+	failedCount, _ := h.getDocumentCountByStatus(userID, "failed")
+
+	rows, err := h.DB.Query("SELECT id, title, original_filename, status, status_message FROM documents WHERE user_id = $1 AND status IN ('queued', 'processing', 'failed') ORDER BY created_at ASC", userID)
 	if err != nil {
 		http.Error(w, "Failed to retrieve queued documents", http.StatusInternalServerError)
 		return
@@ -259,9 +264,22 @@ func (h *DocumentHandler) Queue(w http.ResponseWriter, r *http.Request) {
 		documents = append(documents, doc)
 	}
 
-	if err := template.QueuePage(username, documents).Render(r.Context(), w); err != nil {
+	stats := model.QueueStats{
+		Waiting:    queuedCount,
+		Processing: processingCount,
+		Failed:     failedCount,
+	}
+
+	if err := template.QueuePage(username, documents, stats).Render(r.Context(), w); err != nil {
 		http.Error(w, "Error rendering queue page", http.StatusInternalServerError)
 	}
+}
+
+func (h *DocumentHandler) getDocumentCountByStatus(userID int, status string) (int, error) {
+	var count int
+	query := "SELECT COUNT(*) FROM documents WHERE user_id = $1 AND status = $2"
+	err := h.DB.QueryRow(query, userID, status).Scan(&count)
+	return count, err
 }
 
 func (h *DocumentHandler) QueueStatus(w http.ResponseWriter, r *http.Request) {
